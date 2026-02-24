@@ -451,12 +451,6 @@ final class NotificationManager {
             options: []
         )
 
-        let existing = UNUserNotificationCenter.current()
-        existing.getNotificationCategories { categories in
-            var all = categories
-            all.insert(batchCategory)
-            all.insert(urgentCategory)
-            existing.setNotificationCategories(all)
-        }
+        UNUserNotificationCenter.current().setNotificationCategories([batchCategory, urgentCategory])
     }
 }

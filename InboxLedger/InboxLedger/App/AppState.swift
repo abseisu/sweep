@@ -66,6 +66,7 @@ final class AppState: ObservableObject {
     @Published var items: [LedgerEmail] = []
     @Published var dismissedItems: [LedgerEmail] = []
     var dismissedIds: Set<String> = []              // Persisted across sessions
+    var dismissedThreadIds: Set<String> = []         // iMessage threadIds — prevents resurface
     @Published var snoozedItems: [LedgerEmail] = []
     @Published var isLoading: Bool = false
     @Published var isProcessingAI: Bool = false
@@ -288,6 +289,7 @@ final class AppState: ObservableObject {
         }
         loadAccounts()
         loadDismissedIds()
+        loadDismissedThreadIds()
 
         if ledgerMode == .window {
             checkAutoUnlock()
@@ -303,7 +305,6 @@ final class AppState: ObservableObject {
 
     func saveMode() {
         UserDefaults.standard.set(ledgerMode.rawValue, forKey: "ledger_mode")
-        Task { await BackendManager.shared.syncSettings(.init(mode: ledgerMode.rawValue, windowHour: nil, windowMinute: nil, sensitivity: nil, snoozeHours: nil, scoreThreshold: nil, scanIntervalMinutes: nil)) }
         Task { await BackendManager.shared.syncSettings(.init(
             mode: ledgerMode.rawValue, windowHour: nil, windowMinute: nil,
             sensitivity: nil, snoozeHours: nil, scoreThreshold: nil, scanIntervalMinutes: nil
@@ -552,6 +553,12 @@ final class AppState: ObservableObject {
                 await checkForNewItems()
             }
         }
+    }
+
+    /// Invalidate the stack-mode background refresh timer (e.g. when entering background)
+    func stopStackRefreshTimer() {
+        stackRefreshTimer?.invalidate()
+        stackRefreshTimer = nil
     }
 
     /// Fetches email signatures from Gmail and Outlook for all connected accounts.
@@ -1158,11 +1165,15 @@ final class AppState: ObservableObject {
 
             print("📱 iMessage: fetched \(msgs.count) messages from backend")
 
-            // Filter out any we already have
+            // Filter out any we already have (by message ID)
             let existingIds = Set(items.map { $0.id })
                 .union(dismissedIds)
                 .union(Set(dismissedItems.map { $0.id }))
             msgs = msgs.filter { !existingIds.contains($0.id) }
+
+            // Filter out dismissed threads — prevents conversations from resurfacing
+            // when new messages arrive with different message IDs
+            msgs = msgs.filter { !dismissedThreadIds.contains($0.threadId) }
 
             if msgs.isEmpty {
                 print("📱 iMessage: all messages already in stack")
@@ -1218,6 +1229,8 @@ final class AppState: ObservableObject {
         imessageEnabled = false
         items.removeAll { $0.source == .imessage }
         dismissedItems.removeAll { $0.source == .imessage }
+        dismissedThreadIds.removeAll()
+        UserDefaults.standard.removeObject(forKey: "ledger_dismissed_thread_ids")
         if !hasSources {
             hasCompletedOnboarding = false
             UserDefaults.standard.set(false, forKey: "ledger_onboarded")
@@ -1663,8 +1676,16 @@ final class AppState: ObservableObject {
         let snoozedIds = Set(snoozedItems.map { $0.id })
         let currentDismissedIds = dismissedIds.union(Set(dismissedItems.map { $0.id })).union(snoozedIds)
         let preDismissCount = allItems.count
-        allItems = allItems.filter { !currentDismissedIds.contains($0.id) }
-        print("📊 Dismissed filter: \(preDismissCount) → \(allItems.count) (blocked \(preDismissCount - allItems.count), dismissedIds=\(dismissedIds.count), snoozedIds=\(snoozedIds.count))")
+        allItems = allItems.filter { item in
+            // Filter by message ID (all sources)
+            if currentDismissedIds.contains(item.id) { return false }
+            // Filter by thread ID (iMessage only) — prevents dismissed conversations
+            // from resurfacing when new messages arrive with different message IDs
+            if item.source == .imessage && !item.threadId.isEmpty
+                && dismissedThreadIds.contains(item.threadId) { return false }
+            return true
+        }
+        print("📊 Dismissed filter: \(preDismissCount) → \(allItems.count) (blocked \(preDismissCount - allItems.count), dismissedIds=\(dismissedIds.count), dismissedThreads=\(dismissedThreadIds.count), snoozedIds=\(snoozedIds.count))")
 
         // Merge restored snoozed items (from yesterday) — add at the top, avoid duplicates
         if !restoredSnoozed.isEmpty {
@@ -1710,6 +1731,8 @@ final class AppState: ObservableObject {
     /// For iMessage items, only keep the NEWEST card per conversation thread.
     /// When follow-up messages arrive in the same thread, the older card is replaced
     /// by the newer one — each conversation chain = exactly one card.
+    /// Additionally, if the user was the last to reply in the conversation (per
+    /// conversationContext), the thread is removed entirely — no card needed.
     /// Older replaced card IDs are auto-dismissed so they don't resurface.
     /// Email items are NOT deduplicated (each email has a unique ID).
     private func deduplicateByThread(_ items: [LedgerEmail]) -> [LedgerEmail] {
@@ -1735,14 +1758,39 @@ final class AppState: ObservableObject {
             }
         }
 
+        // Remove threads where the user was the last to reply
+        var userRepliedThreads: [String] = []
+        for (threadId, item) in bestByThread {
+            if userWasLastToReply(item) {
+                userRepliedThreads.append(threadId)
+                replacedIds.append(item.id)
+            }
+        }
+        for threadId in userRepliedThreads {
+            bestByThread.removeValue(forKey: threadId)
+        }
+
         // Auto-dismiss replaced older cards so they don't come back
         if !replacedIds.isEmpty {
             dismissedIds.formUnion(replacedIds)
-            print("📱 iMessage dedup: kept \(bestByThread.count) threads, auto-dismissed \(replacedIds.count) older cards")
+            print("📱 iMessage dedup: kept \(bestByThread.count) threads, auto-dismissed \(replacedIds.count) older cards (user-replied: \(userRepliedThreads.count))")
         }
 
         // Rebuild: non-iMessage items + one card per iMessage thread
         return nonImessageItems + Array(bestByThread.values).sorted { $0.date > $1.date }
+    }
+
+    /// Check if the user was the last person to message in this conversation.
+    /// Parses the conversationContext JSON attached to the LedgerEmail.
+    private func userWasLastToReply(_ item: LedgerEmail) -> Bool {
+        guard let ctxJSON = item.conversationContext,
+              let data = ctxJSON.data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let lastMsg = arr.last,
+              let isFromMe = lastMsg["isFromMe"] as? Bool else {
+            return false
+        }
+        return isFromMe
     }
 
     // MARK: - Check for New Items (incremental scan)
@@ -1812,7 +1860,9 @@ final class AppState: ObservableObject {
         if imessageEnabled {
             do {
                 let msgs = try await messageManager.fetchRecentMessages()
-                let newMsgs = msgs.filter { !existingIds.contains($0.id) }
+                let newMsgs = msgs.filter {
+                    !existingIds.contains($0.id) && !dismissedThreadIds.contains($0.threadId)
+                }
                 if !newMsgs.isEmpty {
                     print("🔍 Check again: iMessage returned \(newMsgs.count) new messages")
                     newItems.append(contentsOf: newMsgs)
@@ -2167,6 +2217,13 @@ final class AppState: ObservableObject {
                 dismissedItems.insert(removed, at: 0)
                 items.removeAll { $0.id == item.id }
 
+                // For iMessage: also track dismissed threadId so new messages
+                // in the same conversation don't resurface the card.
+                if item.source == .imessage && !item.threadId.isEmpty {
+                    dismissedThreadIds.insert(item.threadId)
+                    saveDismissedThreadIds()
+                }
+
                 // In stack mode, dismissals expire after 24 hours so follow-ups resurface.
                 // In window mode, dismissals persist until the next window (traditional behavior).
                 if ledgerMode == .stack {
@@ -2184,6 +2241,11 @@ final class AppState: ObservableObject {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
             dismissedItems.removeFirst()
             items.insert(restored, at: 0)
+            // Un-dismiss the thread so iMessage cards can appear again
+            if restored.source == .imessage && !restored.threadId.isEmpty {
+                dismissedThreadIds.remove(restored.threadId)
+                saveDismissedThreadIds()
+            }
             removeDismissedTimestamp(id: restored.id)
             saveDismissedIds()
             saveLedgerState()
@@ -2194,6 +2256,11 @@ final class AppState: ObservableObject {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
             dismissedItems.removeAll { $0.id == item.id }
             items.insert(item, at: 0)
+            // Un-dismiss the thread so iMessage cards can appear again
+            if item.source == .imessage && !item.threadId.isEmpty {
+                dismissedThreadIds.remove(item.threadId)
+                saveDismissedThreadIds()
+            }
             removeDismissedTimestamp(id: item.id)
             saveDismissedIds()
             saveLedgerState()
@@ -2222,8 +2289,19 @@ final class AppState: ObservableObject {
     func clearDismissed() {
         dismissedItems.removeAll()
         dismissedIds.removeAll()
+        dismissedThreadIds.removeAll()
         UserDefaults.standard.removeObject(forKey: "ledger_dismissed_ids")
         UserDefaults.standard.removeObject(forKey: "ledger_dismissed_timestamps")
+        UserDefaults.standard.removeObject(forKey: "ledger_dismissed_thread_ids")
+    }
+
+    private func saveDismissedThreadIds() {
+        UserDefaults.standard.set(Array(dismissedThreadIds), forKey: "ledger_dismissed_thread_ids")
+    }
+
+    func loadDismissedThreadIds() {
+        guard let ids = UserDefaults.standard.array(forKey: "ledger_dismissed_thread_ids") as? [String] else { return }
+        dismissedThreadIds = Set(ids)
     }
 
     // MARK: - Stack Mode Dismissal Expiry
@@ -2349,6 +2427,14 @@ final class AppState: ObservableObject {
             snoozedItems = state.snoozedItems
             dismissedItems = state.dismissedItems
             dismissedIds = Set(state.dismissedItems.map { $0.id })
+            // Restore dismissed thread IDs from dismissed iMessage items
+            dismissedThreadIds = Set(
+                state.dismissedItems
+                    .filter { $0.source == .imessage && !$0.threadId.isEmpty }
+                    .map { $0.threadId }
+            )
+            // Also merge any persisted thread IDs (covers threads dismissed in prior sessions)
+            loadDismissedThreadIds()
             hasFetchedThisWindow = !items.isEmpty
             lastFetchTimestamp = state.savedAt
 

@@ -45,9 +45,11 @@ app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, 
 app.setErrorHandler((error, request, reply) => {
   // Zod validation errors
   if (error.name === 'ZodError') {
+    let details;
+    try { details = JSON.parse(error.message); } catch { details = error.message; }
     return reply.code(400).send({
       error: 'Validation error',
-      details: JSON.parse(error.message),
+      details,
     });
   }
 

@@ -167,7 +167,7 @@ final class RelayAPI {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    private func post<T: Decodable>(_ path: String, body: Encodable, jwt: String? = nil) async throws -> T {
+    private func post<Body: Encodable, T: Decodable>(_ path: String, body: Body, jwt: String? = nil) async throws -> T {
         var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

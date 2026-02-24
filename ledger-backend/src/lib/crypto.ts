@@ -42,5 +42,5 @@ export function decryptToken(encryptedB64: string, ivB64: string): string {
   const decipher = createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(tag);
 
-  return decipher.update(ciphertext) + decipher.final('utf8');
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
 }

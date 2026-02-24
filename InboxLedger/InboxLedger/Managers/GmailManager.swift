@@ -400,18 +400,9 @@ final class GmailManager {
     }
 
     private func htmlToPlainText(_ html: String) -> String {
-        guard let data = html.data(using: .utf8),
-              let attributed = try? NSAttributedString(
-                data: data,
-                options: [.documentType: NSAttributedString.DocumentType.html,
-                          .characterEncoding: String.Encoding.utf8.rawValue],
-                documentAttributes: nil
-              ) else {
-            return html.replacingOccurrences(of: "<br[^>]*>", with: "\n", options: .regularExpression)
-                       .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-                       .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return html.replacingOccurrences(of: "<br[^>]*>", with: "\n", options: .regularExpression)
+                   .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                   .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Private Helpers

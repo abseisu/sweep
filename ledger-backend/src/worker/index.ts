@@ -20,7 +20,7 @@ const QUEUE_NAME = 'email-scan';
 const connection = {
   host: new URL(process.env.REDIS_URL!).hostname,
   port: parseInt(new URL(process.env.REDIS_URL!).port || '6379'),
-  password: new URL(process.env.REDIS_URL!).password,
+  password: decodeURIComponent(new URL(process.env.REDIS_URL!).password),
   tls: process.env.REDIS_URL?.startsWith('rediss://') ? {} : undefined,
 };
 

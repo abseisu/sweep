@@ -23,7 +23,7 @@ struct SafariView: UIViewControllerRepresentable {
             safeURL = url
         } else {
             // This should never happen, but if it does, show a blank safe page
-            safeURL = URL(string: "https://about:blank")!
+            safeURL = URL(string: "https://example.com")!
         }
 
         let config = SFSafariViewController.Configuration()

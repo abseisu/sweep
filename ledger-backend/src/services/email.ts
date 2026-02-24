@@ -205,7 +205,7 @@ export async function sendOutlookReply(
   messageId: string,
   body: string
 ): Promise<void> {
-  const res = await fetch(`${GRAPH_API}/messages/${messageId}/reply`, {
+  const res = await fetch(`${GRAPH_API}/messages/${encodeURIComponent(messageId)}/reply`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,

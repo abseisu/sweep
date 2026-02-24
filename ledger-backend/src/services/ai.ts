@@ -270,9 +270,8 @@ async function callGemini(system: string, user: string, json = false): Promise<s
 
   if (!res.ok) {
     const err = await res.text();
-    // If Gemini fails (rate limit, quota), fall back to OpenAI
-    console.error(`Gemini error ${res.status}: ${err} — falling back to OpenAI`);
-    return callOpenAI(system, user, json);
+    console.error(`Gemini error ${res.status}: ${err} — returning error (not falling back to avoid quota bypass)`);
+    throw new Error(`Gemini error ${res.status}: ${err}`);
   }
 
   const data = await res.json() as any;

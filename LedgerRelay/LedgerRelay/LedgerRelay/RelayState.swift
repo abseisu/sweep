@@ -5,6 +5,7 @@ import SwiftUI
 import Combine
 import ServiceManagement
 import SQLite3
+import Security
 
 @MainActor
 final class RelayState: ObservableObject {
@@ -43,8 +44,36 @@ final class RelayState: ObservableObject {
     private let lastMessageDateKey = "relay_last_message_date"
 
     var jwt: String? {
-        get { UserDefaults.standard.string(forKey: jwtKey) }
-        set { UserDefaults.standard.set(newValue, forKey: jwtKey) }
+        get {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrAccount as String: jwtKey,
+                kSecReturnData as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne
+            ]
+            var result: AnyObject?
+            guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+                  let data = result as? Data else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+        set {
+            // Delete existing
+            let deleteQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrAccount as String: jwtKey
+            ]
+            SecItemDelete(deleteQuery as CFDictionary)
+            // Add new value if non-nil
+            if let value = newValue, let data = value.data(using: .utf8) {
+                let addQuery: [String: Any] = [
+                    kSecClass as String: kSecClassGenericPassword,
+                    kSecAttrAccount as String: jwtKey,
+                    kSecValueData as String: data,
+                    kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+                ]
+                SecItemAdd(addQuery as CFDictionary, nil)
+            }
+        }
     }
 
     var userId: String? {
@@ -157,6 +186,7 @@ final class RelayState: ObservableObject {
         }
     }
 
+    private var replyRetryCount: [String: Int] = [:]
     private var consecutiveUnpairedChecks = 0
 
     private func healthCheck() async {
@@ -267,8 +297,8 @@ final class RelayState: ObservableObject {
             sqlite3_close(db)
             if queryResult == SQLITE_OK {
                 print("✅ FDA check: SQLite query succeeded")
-                return true
             }
+            return queryResult == SQLITE_OK
         }
         sqlite3_close(db)
 
@@ -378,7 +408,7 @@ final class RelayState: ObservableObject {
             if !messages.isEmpty {
                 // Log what we found
                 for msg in messages.prefix(5) {
-                    print("   📨 \(msg.isFromMe ? "→" : "←") \(msg.senderName): \(msg.text.prefix(40))...")
+                    print("   📨 \(msg.isFromMe ? "→" : "←") \(msg.senderName): [message]")
                 }
                 if messages.count > 5 {
                     print("   ... and \(messages.count - 5) more")
@@ -429,8 +459,8 @@ final class RelayState: ObservableObject {
                 print("📬 Found \(replies.count) pending replies to send")
             }
             for reply in replies {
-                print("📨 Sending reply to \(reply.recipient): \(reply.text.prefix(50))...")
-                let sent = AppleScriptSender.sendMessage(to: reply.recipient, text: reply.text)
+                print("📨 Sending reply to [recipient]: [message]")
+                let sent = await AppleScriptSender.sendMessage(to: reply.recipient, text: reply.text)
                 if sent {
                     try? await api.ackReply(id: reply.id, jwt: token)
                     repliesSent += 1
@@ -438,6 +468,14 @@ final class RelayState: ObservableObject {
                     print("✅ Sent reply to \(reply.recipient)")
                 } else {
                     print("❌ Failed to send reply to \(reply.recipient)")
+                    let count = (replyRetryCount[reply.id] ?? 0) + 1
+                    replyRetryCount[reply.id] = count
+                    if count >= 3 {
+                        // Give up after 3 attempts — ack to remove from queue
+                        try? await api.ackReply(id: reply.id, jwt: token)
+                        replyRetryCount.removeValue(forKey: reply.id)
+                        print("⚠️ Gave up on reply \(reply.id) after 3 attempts")
+                    }
                     // Check if it's an automation permission issue
                     if !AppleScriptSender.checkAutomationPermission() {
                         hasAutomationAccess = false

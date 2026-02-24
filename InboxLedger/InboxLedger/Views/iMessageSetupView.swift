@@ -441,7 +441,7 @@ struct iMessageSetupView: View {
 
     private func startPolling() {
         isCheckingStatus = true
-        // Poll every 3 seconds to check if Mac has connected
+        pollTimer?.invalidate()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
             Task { @MainActor in
                 await checkConnection()

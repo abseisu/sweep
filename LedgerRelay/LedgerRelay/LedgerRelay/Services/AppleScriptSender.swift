@@ -9,14 +9,34 @@ enum AppleScriptSender {
     /// Send an iMessage to a phone number or email address.
     /// Returns true if the message was sent successfully.
     @discardableResult
-    static func sendMessage(to recipient: String, text: String) -> Bool {
+    static func sendMessage(to recipient: String, text: String) async -> Bool {
+        // Validate recipient format — must look like a phone number or email
+        let recipientPattern = #"^[\w.+\-@]+$|^\+?[\d\s\-().]+$"#
+        guard recipient.range(of: recipientPattern, options: .regularExpression) != nil else {
+            print("❌ Invalid recipient format: \(recipient.prefix(20))")
+            return false
+        }
+
         // Escape for shell embedding inside osascript
-        let escapedText = text
+        var escapedText = text
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        let escapedRecipient = recipient
+        // Remove control characters that could break AppleScript strings
+        escapedText = escapedText.replacingOccurrences(of: "\n", with: " ")
+        escapedText = escapedText.replacingOccurrences(of: "\r", with: " ")
+        escapedText = escapedText.replacingOccurrences(of: "\t", with: " ")
+        // Remove any remaining non-printable characters
+        escapedText = String(escapedText.unicodeScalars.filter { $0.value >= 32 && $0.value != 127 })
+
+        var escapedRecipient = recipient
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+        // Remove control characters that could break AppleScript strings
+        escapedRecipient = escapedRecipient.replacingOccurrences(of: "\n", with: " ")
+        escapedRecipient = escapedRecipient.replacingOccurrences(of: "\r", with: " ")
+        escapedRecipient = escapedRecipient.replacingOccurrences(of: "\t", with: " ")
+        // Remove any remaining non-printable characters
+        escapedRecipient = String(escapedRecipient.unicodeScalars.filter { $0.value >= 32 && $0.value != 127 })
 
         // Primary approach: send via iMessage service buddy
         let script = """
@@ -28,7 +48,7 @@ enum AppleScriptSender {
         end tell
         """
 
-        if runOsascript(script) {
+        if await runOsascript(script) {
             return true
         }
 
@@ -43,7 +63,7 @@ enum AppleScriptSender {
         end tell
         """
 
-        if runOsascript(altScript) {
+        if await runOsascript(altScript) {
             return true
         }
 
@@ -57,7 +77,7 @@ enum AppleScriptSender {
         end tell
         """
 
-        return runOsascript(chatScript)
+        return await runOsascript(chatScript)
     }
 
     /// Check if we have Automation permission for Messages.
@@ -68,14 +88,13 @@ enum AppleScriptSender {
             count of conversations
         end tell
         """
-        return runOsascript(script)
+        return runOsascriptSync(script)
     }
 
     // MARK: - Private
 
-    /// Run an AppleScript via osascript subprocess.
-    /// Using Process/osascript is more reliable than NSAppleScript for TCC permission handling.
-    private static func runOsascript(_ script: String) -> Bool {
+    /// Synchronous version for permission checks that don't need to be off-loaded.
+    private static func runOsascriptSync(_ script: String) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", script]
@@ -88,26 +107,52 @@ enum AppleScriptSender {
         do {
             try process.run()
             process.waitUntilExit()
-
-            let exitCode = process.terminationStatus
-            if exitCode == 0 {
-                return true
-            }
-
-            // Read stderr for diagnostics
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
-            print("❌ osascript failed (exit \(exitCode)): \(stderrStr.prefix(200))")
-
-            // Check for specific TCC/permission errors
-            if stderrStr.contains("not permitted") || stderrStr.contains("1743") || stderrStr.contains("not allowed") {
-                print("🔒 This is an Automation permission error — Messages access not granted")
-            }
-
-            return false
+            return process.terminationStatus == 0
         } catch {
-            print("❌ Failed to launch osascript: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    /// Run an AppleScript via osascript subprocess off the main thread.
+    /// Using Process/osascript is more reliable than NSAppleScript for TCC permission handling.
+    private static func runOsascript(_ script: String) async -> Bool {
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+                process.arguments = ["-e", script]
+
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+
+                    let exitCode = process.terminationStatus
+                    if exitCode == 0 {
+                        continuation.resume(returning: true)
+                        return
+                    }
+
+                    // Read stderr for diagnostics
+                    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
+                    print("❌ osascript failed (exit \(exitCode)): \(stderrStr.prefix(200))")
+
+                    // Check for specific TCC/permission errors
+                    if stderrStr.contains("not permitted") || stderrStr.contains("1743") || stderrStr.contains("not allowed") {
+                        print("🔒 This is an Automation permission error — Messages access not granted")
+                    }
+
+                    continuation.resume(returning: false)
+                } catch {
+                    print("❌ Failed to launch osascript: \(error.localizedDescription)")
+                    continuation.resume(returning: false)
+                }
+            }
         }
     }
 }

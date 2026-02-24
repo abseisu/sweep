@@ -2,7 +2,6 @@
 // Ledger
 
 import SwiftUI
-import MessageUI
 
 struct EmailCardView: View {
     @EnvironmentObject var appState: AppState
@@ -13,7 +12,7 @@ struct EmailCardView: View {
     @State private var offset: CGFloat = 0
     @State private var verticalOffset: CGFloat = 0
     @State private var showDraftEditor = false
-    @State private var showMessageCompose = false
+    @State private var showIMessageDraftEditor = false
     @State private var showSnoozed = false
     private let threshold: CGFloat = 120
 
@@ -100,22 +99,13 @@ struct EmailCardView: View {
         )
         .onTapGesture {
             if isTopCard {
-                if isIMessage { showMessageCompose = true }
+                if isIMessage { showIMessageDraftEditor = true }
                 else { showDraftEditor = true }
             }
         }
         .sheet(isPresented: $showDraftEditor) { DraftEditorView(email: email) }
-        .sheet(isPresented: $showMessageCompose) {
-            if MFMessageComposeViewController.canSendText() {
-                MessageComposeView(
-                    recipient: email.senderEmail,
-                    body: email.suggestedDraft ?? "",
-                    onDismiss: {
-                        showMessageCompose = false
-                        appState.dismiss(item: email)
-                    }
-                )
-            }
+        .sheet(isPresented: $showIMessageDraftEditor) {
+            iMessageDraftEditorView(email: email)
         }
         .sheet(item: $selectedLink) { link in
             SafariView(url: link.url)
@@ -329,7 +319,7 @@ struct EmailCardView: View {
             }
 
             // ── Reply draft (outgoing — right aligned, blue bubble) ──
-            if let draft = email.suggestedDraft {
+            if let draft = email.suggestedDraft, !draft.isEmpty {
                 HStack {
                     Spacer(minLength: 60)
 
@@ -355,11 +345,10 @@ struct EmailCardView: View {
                 .padding(.top, 12)
             }
 
-            Color.clear.frame(height: 8)
-
             // ── Bottom hints ──
             if isTopCard {
-                Rectangle().fill(IL.imsgRule.opacity(0.4)).frame(height: 0.5).padding(.horizontal, 18)
+                Rectangle().fill(IL.imsgRule.opacity(0.4)).frame(height: 0.5)
+                    .padding(.horizontal, 18).padding(.top, 4)
 
                 HStack {
                     Text("← dismiss").font(IL.serif(10)).italic().foregroundColor(IL.imsgInkLight)
@@ -488,9 +477,6 @@ struct EmailCardView: View {
 
             // ── Chips (calendar, links, attachments) ──
             chipsSection
-
-            // Bottom padding before hints
-            Color.clear.frame(height: 6)
 
             // ── Bottom hints ──
             if isTopCard { actionHints }
