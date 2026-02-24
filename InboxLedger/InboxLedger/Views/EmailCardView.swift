@@ -371,8 +371,28 @@ struct EmailCardView: View {
                 .padding(.top, 12)
             }
 
-            // ── Bottom hints ──
+            // ── "Already replied?" — iMessage only (relay isn't real-time) ──
             if isTopCard {
+                Button {
+                    SoundManager.shared.play(.tap)
+                    appState.markAsReplied(item: email)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 10, weight: .medium))
+                        Text("Already replied on phone?")
+                            .font(IL.serif(10)).italic()
+                    }
+                    .foregroundColor(IL.imsgBlue.opacity(0.6))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(IL.imsgBlue.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 18).padding(.top, 8)
+
+                // ── Bottom swipe hints ──
                 Rectangle().fill(IL.imsgRule.opacity(0.4)).frame(height: 0.5)
                     .padding(.horizontal, 18).padding(.top, 4)
 
@@ -382,15 +402,7 @@ struct EmailCardView: View {
                     Text("↓ \(appState.snoozeLabel)")
                         .font(IL.serif(10)).italic().foregroundColor(IL.imsgInkLight)
                     Spacer()
-                    Button {
-                        SoundManager.shared.play(.tap)
-                        appState.markAsReplied(item: email)
-                    } label: {
-                        Text("already replied?")
-                            .font(IL.serif(10)).italic()
-                            .foregroundColor(IL.imsgBlue.opacity(0.7))
-                    }
-                    .buttonStyle(.plain)
+                    Text("send →").font(IL.serif(10)).italic().foregroundColor(IL.imsgInkLight)
                 }
                 .padding(.horizontal, 18).padding(.vertical, 10)
             }
@@ -795,15 +807,7 @@ struct EmailCardView: View {
                 Text("↓ \(appState.snoozeLabel)")
                     .font(IL.serif(10)).italic().foregroundColor(IL.inkFaint)
                 Spacer()
-                Button {
-                    SoundManager.shared.play(.tap)
-                    appState.markAsReplied(item: email)
-                } label: {
-                    Text("already replied?")
-                        .font(IL.serif(10)).italic()
-                        .foregroundColor(sourceColor.opacity(0.6))
-                }
-                .buttonStyle(.plain)
+                Text("send →").font(IL.serif(10)).italic().foregroundColor(IL.inkFaint)
             }
             .padding(.horizontal, 18).padding(.vertical, 10)
         }

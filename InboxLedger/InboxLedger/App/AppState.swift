@@ -71,6 +71,15 @@ final class AppState: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var isProcessingAI: Bool = false
     @Published var isScanningNewAccount: String? = nil  // Service label while scanning, nil when done
+    /// True while iMessage background scan is still in progress after main fetch completes.
+    /// Used to hold the loading state so the stack doesn't show until ALL sources are ready.
+    @Published var isLoadingIMessage: Bool = false
+
+    /// True if any part of the initial scan is still running (email fetch OR iMessage scan).
+    /// Dashboard should gate on this instead of just `isLoading`.
+    var isInitialScanInProgress: Bool {
+        isLoading || isLoadingIMessage
+    }
     /// Tracks whether we've already done the initial fetch for this window/session
     var hasFetchedThisWindow: Bool = false
     /// Timestamp of the last completed fetch — "Check again" scans from here
@@ -1134,6 +1143,8 @@ final class AppState: ObservableObject {
         imessageEnabled = true
         // Dedicated iMessage fetch — don't rely on checkForNewItems/fetchAndProcess
         // which may already be running or have already completed with imessageEnabled=false.
+        // Hold the loading state so the stack doesn't appear until iMessage scan completes.
+        isLoadingIMessage = true
         Task {
             // If the main fetch hasn't happened yet (e.g. iMessage setup during onboarding),
             // trigger a full fetchAndProcess which handles ALL sources including Gmail.
@@ -1145,7 +1156,12 @@ final class AppState: ObservableObject {
             // Wait briefly for the Mac relay to start pushing messages
             try? await Task.sleep(nanoseconds: 3_000_000_000) // 3s
             await fetchIMessageItems()
-            // Retry after 10 more seconds in case relay was slow
+
+            // Release the loading gate — user sees the complete initial stack now
+            isLoadingIMessage = false
+
+            // Background retry after 10 more seconds in case relay was slow
+            // (adds cards silently — stack is already visible)
             try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
             await fetchIMessageItems()
         }

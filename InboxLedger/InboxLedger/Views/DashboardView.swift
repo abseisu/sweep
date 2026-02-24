@@ -40,7 +40,7 @@ struct DashboardView: View {
                     .animation(.easeInOut(duration: 0.3), value: appState.isScanningNewAccount)
                 }
 
-                if appState.isLoading {
+                if appState.isInitialScanInProgress {
                     loadingView
                     Spacer(minLength: 0)
                 } else if appState.items.isEmpty {
@@ -455,6 +455,9 @@ struct DashboardView: View {
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            } else if appState.isLoadingIMessage && !appState.isLoading {
+                Text("Scanning iMessages…")
+                    .font(IL.serif(14)).italic().foregroundColor(IL.paperInkLight)
             } else {
                 Text(appState.isProcessingAI ? "Reading between the lines…" : "Gathering your correspondence…")
                     .font(IL.serif(14)).italic().foregroundColor(IL.paperInkLight)
@@ -731,19 +734,14 @@ struct DashboardView: View {
 
     private var cardStackView: some View {
         GeometryReader { geo in
-            ZStack {
-                ForEach(Array(appState.items.prefix(3).enumerated().reversed()), id: \.element.id) { index, item in
-                    EmailCardView(email: item, isTopCard: index == 0, maxHeight: geo.size.height - 20)
-                        .offset(y: CGFloat(index) * 5)
-                        .scaleEffect(1.0 - CGFloat(index) * 0.02)
-                        .opacity(index == 0 ? 1.0 : 0.35)
-                        .zIndex(Double(3 - index))
-                        // Clip back cards so their bottom hints don't show below the top card
-                        .clipped()
-                }
+            // Show only the current top card — no distracting background stack
+            if let topItem = appState.items.first {
+                EmailCardView(email: topItem, isTopCard: true, maxHeight: geo.size.height - 20)
+                    .id(topItem.id)
+                    .transition(.opacity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .padding(.horizontal, 20)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.horizontal, 20)
         }
     }
 }
