@@ -88,12 +88,32 @@ enum AppleScriptSender {
             count of conversations
         end tell
         """
-        return runOsascript(script)
+        return runOsascriptSync(script)
     }
 
     // MARK: - Private
 
-    /// Run an AppleScript via osascript subprocess.
+    /// Synchronous version for permission checks that don't need to be off-loaded.
+    private static func runOsascriptSync(_ script: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script]
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+
+    /// Run an AppleScript via osascript subprocess off the main thread.
     /// Using Process/osascript is more reliable than NSAppleScript for TCC permission handling.
     private static func runOsascript(_ script: String) async -> Bool {
         return await withCheckedContinuation { continuation in

@@ -187,7 +187,6 @@ final class RelayState: ObservableObject {
     }
 
     private var replyRetryCount: [String: Int] = [:]
-    private var replyRetryCount: [String: Int] = [:]
     private var consecutiveUnpairedChecks = 0
 
     private func healthCheck() async {
