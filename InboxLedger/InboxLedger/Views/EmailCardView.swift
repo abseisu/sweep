@@ -2,7 +2,6 @@
 // Ledger
 
 import SwiftUI
-import MessageUI
 
 struct EmailCardView: View {
     @EnvironmentObject var appState: AppState
@@ -13,7 +12,7 @@ struct EmailCardView: View {
     @State private var offset: CGFloat = 0
     @State private var verticalOffset: CGFloat = 0
     @State private var showDraftEditor = false
-    @State private var showMessageCompose = false
+    @State private var showIMessageDraftEditor = false
     @State private var showSnoozed = false
     private let threshold: CGFloat = 120
 
@@ -100,22 +99,13 @@ struct EmailCardView: View {
         )
         .onTapGesture {
             if isTopCard {
-                if isIMessage { showMessageCompose = true }
+                if isIMessage { showIMessageDraftEditor = true }
                 else { showDraftEditor = true }
             }
         }
         .sheet(isPresented: $showDraftEditor) { DraftEditorView(email: email) }
-        .sheet(isPresented: $showMessageCompose) {
-            if MFMessageComposeViewController.canSendText() {
-                MessageComposeView(
-                    recipient: email.senderEmail,
-                    body: email.suggestedDraft ?? "",
-                    onDismiss: {
-                        showMessageCompose = false
-                        appState.dismiss(item: email)
-                    }
-                )
-            }
+        .sheet(isPresented: $showIMessageDraftEditor) {
+            iMessageDraftEditorView(email: email)
         }
         .sheet(item: $selectedLink) { link in
             SafariView(url: link.url)
