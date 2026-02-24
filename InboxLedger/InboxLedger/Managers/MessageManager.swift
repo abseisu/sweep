@@ -65,31 +65,49 @@ final class MessageManager: NSObject {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let fallbackFormatter = ISO8601DateFormatter()
 
-        return response.messages.compactMap { msg in
-            // Parse date
-            let date = formatter.date(from: msg.date)
-                ?? fallbackFormatter.date(from: msg.date)
-                ?? Date()
+        // ── Group messages by chatId so we produce exactly ONE card per conversation ──
+        var chatGroups: [String: [RelayMessage]] = [:]
+        for msg in response.messages {
+            chatGroups[msg.chatId, default: []].append(msg)
+        }
 
-            // Build conversation context string for the card's body
-            var contextParts: [String] = []
-            if let ctx = msg.conversationContext {
-                for c in ctx.suffix(20) {
-                    let prefix = c.isFromMe ? "→ Me" : "← \(c.senderName ?? msg.senderName)"
-                    let cDate = formatter.date(from: c.date)
-                        ?? fallbackFormatter.date(from: c.date)
-                        ?? date
-                    let timeStr = RelativeDateTimeFormatter().localizedString(for: cDate, relativeTo: Date())
-                    contextParts.append("[\(timeStr)] \(prefix): \(c.text)")
-                }
+        return chatGroups.values.compactMap { group -> LedgerEmail? in
+            // Sort messages in this chat newest-first so we can inspect the latest
+            let sorted = group.sorted { lhs, rhs in
+                let lDate = formatter.date(from: lhs.date)
+                    ?? fallbackFormatter.date(from: lhs.date) ?? Date.distantPast
+                let rDate = formatter.date(from: rhs.date)
+                    ?? fallbackFormatter.date(from: rhs.date) ?? Date.distantPast
+                return lDate > rDate
             }
 
-            // If this message is from me, skip it — we only want incoming messages
-            if msg.isFromMe == true { return nil }
+            // Use the newest message as the representative for this chat
+            let newest = sorted[0]
+
+            // ── Determine if the conversation's latest messages are from the user ──
+            // Check conversationContext first (full chat history from backend)
+            if let ctx = newest.conversationContext, !ctx.isEmpty {
+                // The last entry in conversationContext is the most recent message
+                if ctx.last?.isFromMe == true {
+                    // User was the last to respond — no card needed
+                    return nil
+                }
+            } else {
+                // No conversationContext — fall back to the message-level isFromMe flag.
+                // If the newest message in this chat is from the user, skip.
+                if newest.isFromMe == true { return nil }
+            }
+
+            // Also skip if EVERY message in the group is from the user
+            if sorted.allSatisfy({ $0.isFromMe == true }) { return nil }
+
+            let date = formatter.date(from: newest.date)
+                ?? fallbackFormatter.date(from: newest.date)
+                ?? Date()
 
             // Serialize conversation context as JSON for the card's scroll history
             var conversationContextJSON: String? = nil
-            if let ctx = msg.conversationContext, !ctx.isEmpty {
+            if let ctx = newest.conversationContext, !ctx.isEmpty {
                 let ctxDicts: [[String: Any]] = ctx.map { c in
                     var d: [String: Any] = [
                         "text": c.text,
@@ -104,10 +122,37 @@ final class MessageManager: NSObject {
                 }
             }
 
-            // Build snippet from structured messages as JSON (card view parses this)
+            // ── Build snippet: only show the latest consecutive sender messages ──
+            // (i.e. everything after the user's last reply)
             let snippetText: String
-            if let structured = msg.structuredMessages, !structured.isEmpty {
-                let structDicts: [[String: Any]] = structured.map { m in
+            if let structured = newest.structuredMessages, !structured.isEmpty {
+                // Use conversationContext to find the date of the user's last reply
+                var lastUserReplyDate: Date? = nil
+                if let ctx = newest.conversationContext {
+                    for c in ctx.reversed() {
+                        if c.isFromMe {
+                            lastUserReplyDate = formatter.date(from: c.date)
+                                ?? fallbackFormatter.date(from: c.date)
+                            break
+                        }
+                    }
+                }
+
+                // Filter structured messages to only those AFTER the user's last reply
+                let relevantStructured: [StructuredMessage]
+                if let cutoff = lastUserReplyDate {
+                    relevantStructured = structured.filter { m in
+                        let mDate = formatter.date(from: m.date)
+                            ?? fallbackFormatter.date(from: m.date)
+                            ?? Date.distantPast
+                        return mDate > cutoff
+                    }
+                } else {
+                    relevantStructured = structured
+                }
+
+                let toEncode = relevantStructured.isEmpty ? structured : relevantStructured
+                let structDicts: [[String: Any]] = toEncode.map { m in
                     var d: [String: Any] = [
                         "text": m.text,
                         "date": m.date,
@@ -119,33 +164,33 @@ final class MessageManager: NSObject {
                    let str = String(data: data, encoding: .utf8) {
                     snippetText = str
                 } else {
-                    snippetText = structured.map { $0.text }.joined(separator: "\n")
+                    snippetText = toEncode.map { $0.text }.joined(separator: "\n")
                 }
             } else {
-                snippetText = String(msg.text.prefix(100))
+                snippetText = String(newest.text.prefix(100))
             }
 
-            let body = msg.text
+            let body = newest.text
 
             var item = LedgerEmail(
-                id: msg.id,
+                id: newest.id,
                 source: .imessage,
-                threadId: msg.chatId,
+                threadId: newest.chatId,
                 messageId: "",
-                senderName: msg.isGroupChat == true ? (msg.groupName ?? msg.senderName) : msg.senderName,
-                senderEmail: msg.senderPhone,
+                senderName: newest.isGroupChat == true ? (newest.groupName ?? newest.senderName) : newest.senderName,
+                senderEmail: newest.senderPhone,
                 subject: "",
                 snippet: snippetText,
                 body: body,
                 date: date,
                 isUnread: true,
                 accountId: "imessage",
-                aiSummary: msg.aiSummary,
-                suggestedDraft: msg.suggestedDraft,
-                replyability: msg.replyability ?? 60
+                aiSummary: newest.aiSummary,
+                suggestedDraft: newest.suggestedDraft,
+                replyability: newest.replyability ?? 60
             )
-            item.detectedTone = msg.detectedTone
-            item.category = msg.category
+            item.detectedTone = newest.detectedTone
+            item.category = newest.category
             item.conversationContext = conversationContextJSON
             return item
         }

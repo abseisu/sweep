@@ -1715,6 +1715,8 @@ final class AppState: ObservableObject {
     /// For iMessage items, only keep the NEWEST card per conversation thread.
     /// When follow-up messages arrive in the same thread, the older card is replaced
     /// by the newer one — each conversation chain = exactly one card.
+    /// Additionally, if the user was the last to reply in the conversation (per
+    /// conversationContext), the thread is removed entirely — no card needed.
     /// Older replaced card IDs are auto-dismissed so they don't resurface.
     /// Email items are NOT deduplicated (each email has a unique ID).
     private func deduplicateByThread(_ items: [LedgerEmail]) -> [LedgerEmail] {
@@ -1740,14 +1742,39 @@ final class AppState: ObservableObject {
             }
         }
 
+        // Remove threads where the user was the last to reply
+        var userRepliedThreads: [String] = []
+        for (threadId, item) in bestByThread {
+            if userWasLastToReply(item) {
+                userRepliedThreads.append(threadId)
+                replacedIds.append(item.id)
+            }
+        }
+        for threadId in userRepliedThreads {
+            bestByThread.removeValue(forKey: threadId)
+        }
+
         // Auto-dismiss replaced older cards so they don't come back
         if !replacedIds.isEmpty {
             dismissedIds.formUnion(replacedIds)
-            print("📱 iMessage dedup: kept \(bestByThread.count) threads, auto-dismissed \(replacedIds.count) older cards")
+            print("📱 iMessage dedup: kept \(bestByThread.count) threads, auto-dismissed \(replacedIds.count) older cards (user-replied: \(userRepliedThreads.count))")
         }
 
         // Rebuild: non-iMessage items + one card per iMessage thread
         return nonImessageItems + Array(bestByThread.values).sorted { $0.date > $1.date }
+    }
+
+    /// Check if the user was the last person to message in this conversation.
+    /// Parses the conversationContext JSON attached to the LedgerEmail.
+    private func userWasLastToReply(_ item: LedgerEmail) -> Bool {
+        guard let ctxJSON = item.conversationContext,
+              let data = ctxJSON.data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let lastMsg = arr.last,
+              let isFromMe = lastMsg["isFromMe"] as? Bool else {
+            return false
+        }
+        return isFromMe
     }
 
     // MARK: - Check for New Items (incremental scan)
