@@ -43,13 +43,14 @@ final class ChatDBReader {
 
     private func openDB() throws {
         guard db == nil else { return }
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX
+        let flags = SQLITE_OPEN_READONLY
         let result = sqlite3_open_v2(dbPath, &db, flags, nil)
         if result != SQLITE_OK {
             let errorMsg = String(cString: sqlite3_errmsg(db))
             db = nil
             throw ChatDBError.cannotOpen(errorMsg)
         }
+        sqlite3_busy_timeout(db, 5000) // Wait up to 5 seconds if Messages.app is writing
     }
 
     // MARK: - Fetch New Messages
@@ -179,7 +180,7 @@ final class ChatDBReader {
         guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else { return [] }
         defer { sqlite3_finalize(stmt) }
 
-        sqlite3_bind_text(stmt, 1, (chatId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 1, (chatId as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
 
         var members: [String] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
@@ -231,7 +232,7 @@ final class ChatDBReader {
         }
         defer { sqlite3_finalize(stmt) }
 
-        sqlite3_bind_text(stmt, 1, (chatId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 1, (chatId as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         sqlite3_bind_int64(stmt, 2, beforeValue)
         sqlite3_bind_int(stmt, 3, Int32(limit))
 
@@ -340,7 +341,7 @@ final class ChatDBReader {
             guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else { continue }
             defer { sqlite3_finalize(stmt) }
 
-            sqlite3_bind_text(stmt, 1, (chatId as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 1, (chatId as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
 
             if sqlite3_step(stmt) == SQLITE_ROW {
                 let dateValue = sqlite3_column_int64(stmt, 0)

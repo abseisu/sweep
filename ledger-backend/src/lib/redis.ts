@@ -49,11 +49,15 @@ export async function rateLimit(
         const pipeline = redis.pipeline();
         pipeline.zremrangebyscore(redisKey, 0, windowStart);
         pipeline.zcard(redisKey);
-        pipeline.zadd(redisKey, now, `${now}-${Math.random()}`);
         pipeline.expire(redisKey, windowSeconds);
 
         const results = await pipeline.exec();
         const currentCount = (results?.[1]?.[1] as number) ?? 0;
+
+        if (currentCount < maxRequests) {
+          // Only count the request if it's allowed
+          await redis.zadd(redisKey, now, `${now}-${Math.random()}`);
+        }
 
         return {
           allowed: currentCount < maxRequests,

@@ -26,8 +26,8 @@ async function migrate() {
       provider TEXT NOT NULL,
       email TEXT NOT NULL,
       display_name TEXT,
-      refresh_token_encrypted BYTEA,
-      refresh_token_iv BYTEA,
+      refresh_token_encrypted TEXT,
+      refresh_token_iv TEXT,
       token_expires_at TIMESTAMPTZ,
       is_enabled BOOLEAN DEFAULT true NOT NULL,
       last_scan_at TIMESTAMPTZ,
@@ -67,8 +67,8 @@ async function migrate() {
       window_minute INT DEFAULT 0 NOT NULL,
       sensitivity INT DEFAULT 50 NOT NULL,
       snooze_hours INT DEFAULT 6 NOT NULL,
-      score_threshold INT DEFAULT 40 NOT NULL,
-      scan_interval_minutes INT DEFAULT 15 NOT NULL,
+      score_threshold INT DEFAULT 25 NOT NULL,
+      scan_interval_minutes INT DEFAULT 2 NOT NULL,
       updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
     )
   `;

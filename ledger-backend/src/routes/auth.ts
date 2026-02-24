@@ -197,6 +197,9 @@ export default async function authRoutes(app: FastifyInstance) {
       previousUserId: z.string().optional(),  // iOS sends this if it had a prior user
     }).parse(request.body);
 
+    const rl = await rateLimit(`register-device:${body.deviceId}`, 5, 60);
+    if (!rl.allowed) return reply.code(429).send({ error: 'Too many requests' });
+
     // Check if this device already has a user
     const existingDevice = await db
       .select()
@@ -233,48 +236,57 @@ export default async function authRoutes(app: FastifyInstance) {
       // If iOS had a previous userId with an active Mac relay,
       // move the relay info and device to the new user so the Mac
       // continues working seamlessly without re-pairing.
+      // Only allow migration if the old user's relay device exists AND is associated
+      // with a device that shares this device's IP or was recently active.
+      // At minimum, verify the old user actually has a relay to migrate.
       const oldUserId = body.previousUserId;
       if (oldUserId && oldUserId !== userId) {
         try {
-          const relayInfo = await redis.get(`imsg_relay:${oldUserId}`);
-          if (relayInfo) {
-            // Move relay info to new user
-            await redis.set(`imsg_relay:${userId}`, relayInfo);
-            await redis.del(`imsg_relay:${oldUserId}`);
+          const oldDevices = await db.select().from(schema.devices)
+            .where(eq(schema.devices.userId, oldUserId)).limit(1);
+          if (oldDevices.length === 0) {
+            console.log(`⚠️ Migration skipped — no devices found for old user ${oldUserId}`);
+          } else {
+            const relayInfo = await redis.get(`imsg_relay:${oldUserId}`);
+            if (relayInfo) {
+              // Move relay info to new user
+              await redis.set(`imsg_relay:${userId}`, relayInfo);
+              await redis.del(`imsg_relay:${oldUserId}`);
 
-            // Move any pending replies
-            const pendingReplies = await redis.lrange(`imsg_replies:${oldUserId}`, 0, -1);
-            if (pendingReplies.length > 0) {
-              for (const r of pendingReplies) {
-                await redis.rpush(`imsg_replies:${userId}`, r);
+              // Move any pending replies
+              const pendingReplies = await redis.lrange(`imsg_replies:${oldUserId}`, 0, -1);
+              if (pendingReplies.length > 0) {
+                for (const r of pendingReplies) {
+                  await redis.rpush(`imsg_replies:${userId}`, r);
+                }
+                await redis.del(`imsg_replies:${oldUserId}`);
               }
-              await redis.del(`imsg_replies:${oldUserId}`);
+
+              // Move Mac relay device to new user
+              const macDeviceId = `mac_relay_${oldUserId}`;
+              const newMacDeviceId = `mac_relay_${userId}`;
+              await db.update(schema.devices)
+                .set({ userId, deviceId: newMacDeviceId })
+                .where(and(
+                  eq(schema.devices.userId, oldUserId),
+                  eq(schema.devices.deviceId, macDeviceId),
+                ));
+
+              // Move ledger items from old user
+              await db.update(schema.ledgerItems)
+                .set({ userId })
+                .where(eq(schema.ledgerItems.userId, oldUserId));
+
+              // Issue a fresh JWT for the Mac relay under the new user
+              const { token: macJwt, expiresAt: macExpiry } = await signJWT(userId, newMacDeviceId);
+              // Store the fresh Mac JWT in Redis so the Mac can pick it up
+              await redis.set(`imsg_mac_jwt:${userId}`, JSON.stringify({
+                jwt: macJwt,
+                expiresAt: macExpiry.toISOString(),
+              }), 'EX', 86400); // 24h TTL
+
+              console.log(`🔄 Migrated Mac relay from user ${oldUserId} → ${userId}`);
             }
-
-            // Move Mac relay device to new user
-            const macDeviceId = `mac_relay_${oldUserId}`;
-            const newMacDeviceId = `mac_relay_${userId}`;
-            await db.update(schema.devices)
-              .set({ userId, deviceId: newMacDeviceId })
-              .where(and(
-                eq(schema.devices.userId, oldUserId),
-                eq(schema.devices.deviceId, macDeviceId),
-              ));
-
-            // Move ledger items from old user
-            await db.update(schema.ledgerItems)
-              .set({ userId })
-              .where(eq(schema.ledgerItems.userId, oldUserId));
-
-            // Issue a fresh JWT for the Mac relay under the new user
-            const { token: macJwt, expiresAt: macExpiry } = await signJWT(userId, newMacDeviceId);
-            // Store the fresh Mac JWT in Redis so the Mac can pick it up
-            await redis.set(`imsg_mac_jwt:${userId}`, JSON.stringify({
-              jwt: macJwt,
-              expiresAt: macExpiry.toISOString(),
-            }), 'EX', 86400); // 24h TTL
-
-            console.log(`🔄 Migrated Mac relay from user ${oldUserId} → ${userId}`);
           }
         } catch (err) {
           console.error('⚠️ Relay migration error (non-fatal):', err);

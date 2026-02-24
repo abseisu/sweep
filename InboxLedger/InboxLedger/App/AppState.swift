@@ -303,7 +303,6 @@ final class AppState: ObservableObject {
 
     func saveMode() {
         UserDefaults.standard.set(ledgerMode.rawValue, forKey: "ledger_mode")
-        Task { await BackendManager.shared.syncSettings(.init(mode: ledgerMode.rawValue, windowHour: nil, windowMinute: nil, sensitivity: nil, snoozeHours: nil, scoreThreshold: nil, scanIntervalMinutes: nil)) }
         Task { await BackendManager.shared.syncSettings(.init(
             mode: ledgerMode.rawValue, windowHour: nil, windowMinute: nil,
             sensitivity: nil, snoozeHours: nil, scoreThreshold: nil, scanIntervalMinutes: nil

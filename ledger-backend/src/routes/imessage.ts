@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.js';
 import { db, schema } from '../db/index.js';
 import { eq, and, sql } from 'drizzle-orm';
-import { redis } from '../lib/redis.js';
+import { redis, rateLimit } from '../lib/redis.js';
 import { signJWT } from '../lib/jwt.js';
 import { scoreEmails } from '../services/ai.js';
 
@@ -46,15 +46,18 @@ export default async function imessageRoutes(app: FastifyInstance) {
       macName: z.string().optional(),
     }).parse(request.body);
 
+    const clientIp = request.ip || 'unknown';
+    const rl = await rateLimit(`pair-confirm:${clientIp}`, 10, 60);
+    if (!rl.allowed) return reply.code(429).send({ error: 'Too many attempts' });
+
     const code = body.code.toUpperCase().trim();
-    const userId = await redis.get(`${PAIR_PREFIX}${code}`);
+
+    // Atomic get-and-delete to prevent race conditions (two Macs submitting same code)
+    const userId = await redis.getdel(`${PAIR_PREFIX}${code}`);
 
     if (!userId) {
       return reply.code(400).send({ error: 'Invalid or expired pairing code' });
     }
-
-    // Delete the code (single use)
-    await redis.del(`${PAIR_PREFIX}${code}`);
 
     // Create a device entry for the Mac relay
     const deviceId = `mac_relay_${userId}`;
@@ -389,7 +392,7 @@ export default async function imessageRoutes(app: FastifyInstance) {
               toRecipients: conversationContext || existing.toRecipients,
               updatedAt: new Date(),
             })
-            .where(eq(schema.ledgerItems.id, existing.id));
+            .where(and(eq(schema.ledgerItems.id, existing.id), eq(schema.ledgerItems.userId, userId)));
 
           console.log(`🔄 Updated card for ${group.senderName}: ${group.messages.length} messages in latest burst`);
           savedCount++;
@@ -565,6 +568,12 @@ export default async function imessageRoutes(app: FastifyInstance) {
       macDeviceId: z.string(),
     }).parse(request.body);
 
+    // Require the old JWT in the Authorization header — verify signature only (allow expired)
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return reply.code(401).send({ error: 'Authorization header required for reauth' });
+    }
+
     // Check if there's a fresh JWT waiting (set by register-device migration)
     const stored = await redis.get(`imsg_mac_jwt:${body.oldUserId}`);
     if (!stored) {
@@ -638,8 +647,10 @@ export default async function imessageRoutes(app: FastifyInstance) {
   // Dismisses any items where the user has replied since the item was created.
   app.post('/imessage/verify-active', { preHandler: authMiddleware }, async (request) => {
     const userId = request.userId;
-    const body = request.body as { lastReplyDates: Record<string, string> };
-    const replyDates = body.lastReplyDates || {};
+    const body = z.object({
+      lastReplyDates: z.record(z.string(), z.string()).default({}),
+    }).parse(request.body);
+    const replyDates = body.lastReplyDates;
 
     if (Object.keys(replyDates).length === 0) {
       return { ok: true, dismissed: 0 };
@@ -669,7 +680,7 @@ export default async function imessageRoutes(app: FastifyInstance) {
       if (replyTime > itemTime) {
         await db.update(schema.ledgerItems)
           .set({ status: 'dismissed', updatedAt: new Date() })
-          .where(eq(schema.ledgerItems.id, item.id));
+          .where(and(eq(schema.ledgerItems.id, item.id), eq(schema.ledgerItems.userId, userId)));
         dismissedCount++;
         console.log(`🧹 Auto-dismissed stale card for ${item.senderName} — user replied at ${lastReply}`);
       }

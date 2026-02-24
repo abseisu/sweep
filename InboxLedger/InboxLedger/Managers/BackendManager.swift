@@ -9,8 +9,7 @@ final class BackendManager {
 
     private let baseURL = "https://ledger-api-adnanbseisu.fly.dev"
 
-    /// Guards against re-entrant refresh loops
-    private var isRefreshing = false
+    private var refreshTask: Task<Void, Error>?
 
     private var jwt: String? {
         get { KeychainHelper.get("ledger_jwt") }
@@ -114,12 +113,15 @@ final class BackendManager {
     func request<T: Decodable>(
         _ method: String, path: String, body: Encodable? = nil, isRetry: Bool = false
     ) async throws -> T {
-        // Auto-refresh JWT if expiring within 1 hour (but not if already refreshing)
-        if !isRefreshing, let expiry = jwtExpiry, expiry.timeIntervalSinceNow < 3600, jwt != nil {
+        // Auto-refresh JWT if expiring within 1 hour
+        if let expiry = jwtExpiry, expiry.timeIntervalSinceNow < 3600, jwt != nil {
             try? await refreshJWT()
         }
 
-        var urlRequest = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
+        guard let url = URL(string: "\(baseURL)\(path)") else {
+            throw BackendError.invalidResponse
+        }
+        var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.timeoutInterval = 30
@@ -221,37 +223,45 @@ final class BackendManager {
     }
 
     private func refreshJWT() async throws {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        defer { isRefreshing = false }
-
-        guard jwt != nil else {
-            throw BackendError.httpError(401, "No JWT to refresh")
+        // Coalesce concurrent refresh calls — if one is in flight, await it
+        if let existing = refreshTask {
+            try await existing.value
+            return
         }
 
-        var urlRequest = URLRequest(url: URL(string: "\(baseURL)/auth/refresh")!)
-        urlRequest.httpMethod = "POST"
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.timeoutInterval = 15
-        if let jwt = jwt {
-            urlRequest.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
-        }
-        // Send empty JSON body to avoid Fastify empty-body error
-        urlRequest.httpBody = "{}".data(using: .utf8)
+        let task = Task {
+            defer { self.refreshTask = nil }
 
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw BackendError.httpError(code, "JWT refresh failed")
+            guard jwt != nil else {
+                throw BackendError.httpError(401, "No JWT to refresh")
+            }
+
+            var urlRequest = URLRequest(url: URL(string: "\(baseURL)/auth/refresh")!)
+            urlRequest.httpMethod = "POST"
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            urlRequest.timeoutInterval = 15
+            if let jwt = jwt {
+                urlRequest.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+            }
+            urlRequest.httpBody = "{}".data(using: .utf8)
+
+            let (data, response) = try await URLSession.shared.data(for: urlRequest)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                throw BackendError.httpError(code, "JWT refresh failed")
+            }
+
+            struct RefreshResponse: Decodable {
+                let jwt: String
+                let expiresAt: String
+            }
+            let r = try JSONDecoder().decode(RefreshResponse.self, from: data)
+            self.jwt = r.jwt
+            self.jwtExpiry = ISO8601DateFormatter().date(from: r.expiresAt)
         }
 
-        struct RefreshResponse: Decodable {
-            let jwt: String
-            let expiresAt: String
-        }
-        let r = try JSONDecoder().decode(RefreshResponse.self, from: data)
-        jwt = r.jwt
-        jwtExpiry = ISO8601DateFormatter().date(from: r.expiresAt)
+        refreshTask = task
+        try await task.value
     }
 
     // MARK: - Score (Unlimited)

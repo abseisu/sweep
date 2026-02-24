@@ -31,7 +31,7 @@ final class SlackManager: NSObject {
     // │  REPLACE with your Slack App credentials              │
     // └──────────────────────────────────────────────────────┘
     private let clientID = "10477916588257.10464995370402"
-    private let clientSecret = "10477916588257.10464995370402"
+    private let clientSecret = "REPLACE_WITH_ACTUAL_SLACK_CLIENT_SECRET"
     
     // Use https redirect — Slack requires HTTPS.
     // Option A: Host a tiny redirect page that bounces to ledger://slack/callback
@@ -101,7 +101,7 @@ final class SlackManager: NSObject {
             let (data, _) = try await URLSession.shared.data(for: request)
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
 
-            print("🔄 Slack token response: \(json)")
+            print("🔄 Slack token response: ok=\(json["ok"] ?? "nil")")
 
             guard let authedUser = json["authed_user"] as? [String: Any],
                   let token = authedUser["access_token"] as? String,

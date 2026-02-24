@@ -58,6 +58,10 @@ final class GroupMeManager: NSObject {
         // Client ID is registered at https://dev.groupme.com/applications
         let clientID = "YOUR_GROUPME_CLIENT_ID"  // Replace with your app's client ID
 
+        guard clientID != "YOUR_GROUPME_CLIENT_ID" else {
+            throw GroupMeError.authFailed  // GroupMe not configured
+        }
+
         let authURL = "https://oauth.groupme.com/oauth/authorize?client_id=\(clientID)"
         let callbackScheme = "ledger"
 

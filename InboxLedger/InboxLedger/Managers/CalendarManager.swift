@@ -294,13 +294,16 @@ final class CalendarManager {
     private func getGmailToken() -> String? {
         guard let data = UserDefaults.standard.data(forKey: "ledger_accounts"),
               let accounts = try? JSONDecoder().decode([ConnectedAccount].self, from: data) else { return nil }
-        return accounts.first(where: { $0.service == .gmail })?.accessToken
+        guard let account = accounts.first(where: { $0.service == .gmail }) else { return nil }
+        // Token loaded from Keychain via ConnectedAccount's custom Codable
+        return account.accessToken.isEmpty ? nil : account.accessToken
     }
 
     private func getOutlookToken() -> String? {
         guard let data = UserDefaults.standard.data(forKey: "ledger_accounts"),
               let accounts = try? JSONDecoder().decode([ConnectedAccount].self, from: data) else { return nil }
-        return accounts.first(where: { $0.service == .outlook })?.accessToken
+        guard let account = accounts.first(where: { $0.service == .outlook }) else { return nil }
+        return account.accessToken.isEmpty ? nil : account.accessToken
     }
 
     // MARK: - Dedup
