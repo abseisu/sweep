@@ -677,7 +677,8 @@ struct DashboardView: View {
     private var cardStackView: some View {
         GeometryReader { geo in
             if let item = appState.items.first {
-                EmailCardView(email: item, isTopCard: true, maxHeight: geo.size.height - 20)
+                EmailCardView(email: item, isTopCard: true)
+                    .frame(maxHeight: geo.size.height - 20)
                     .transition(.opacity)
             }
         }
