@@ -686,9 +686,9 @@ struct DashboardView: View {
 
                     EmailCardView(email: item, isTopCard: isTop)
                         .frame(maxHeight: maxCardHeight)
-                        .scaleEffect(1 - depth * 0.04, anchor: .top)
+                        .scaleEffect(1.0 - depth * 0.04, anchor: .top)
                         .offset(y: depth * 8)
-                        .opacity(1 - depth * 0.15)
+                        .opacity(Double(1.0 - depth * 0.15))
                         .allowsHitTesting(isTop)
                         .zIndex(Double(visibleCards.count - index))
                         .transition(.asymmetric(
