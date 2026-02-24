@@ -39,14 +39,14 @@ struct EmailCardView: View {
             }
         }
         .frame(maxHeight: maxHeight)
-        .clipShape(RoundedRectangle(cornerRadius: isIMessage ? 20 : cardRadius))
+        .clipShape(RoundedRectangle(cornerRadius: cardRadius))
         .background(
-            RoundedRectangle(cornerRadius: isIMessage ? 20 : cardRadius)
+            RoundedRectangle(cornerRadius: cardRadius)
                 .fill(isIMessage ? IL.imsgCard : cardBackground)
-                .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
+                .shadow(color: Color.black.opacity(0.10), radius: 16, y: 6)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: isIMessage ? 20 : cardRadius)
+            RoundedRectangle(cornerRadius: cardRadius)
                 .stroke(isIMessage ? IL.imsgRule.opacity(0.5) : cardBorder, lineWidth: 0.5)
         )
         .overlay(alignment: .leading) {
@@ -59,8 +59,11 @@ struct EmailCardView: View {
                     .frame(width: 3).padding(.vertical, 12)
             } else {
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(email.priority.color)
-                    .frame(width: 3).padding(.vertical, 8)
+                    .fill(LinearGradient(
+                        colors: [sourceColor, sourceColor.opacity(0.6)],
+                        startPoint: .top, endPoint: .bottom
+                    ))
+                    .frame(width: 3).padding(.vertical, 12)
             }
         }
         // Swipe overlays
@@ -121,7 +124,7 @@ struct EmailCardView: View {
     private var swipeOverlays: some View {
         Group {
             if offset < -30 {
-                RoundedRectangle(cornerRadius: isIMessage ? 20 : IL.radius)
+                RoundedRectangle(cornerRadius: cardRadius)
                     .fill(IL.accent.opacity(min(Double(-offset) / 250, 0.35)))
                     .overlay(
                         Text("Dismiss").font(IL.serif(16)).italic()
@@ -129,7 +132,7 @@ struct EmailCardView: View {
                     )
             }
             if offset > 30 {
-                RoundedRectangle(cornerRadius: isIMessage ? 20 : IL.radius)
+                RoundedRectangle(cornerRadius: cardRadius)
                     .fill((isIMessage ? IL.imsgBlue : IL.success).opacity(min(Double(offset) / 250, 0.35)))
                     .overlay(
                         Text("Send").font(IL.serif(16)).italic()
@@ -137,7 +140,7 @@ struct EmailCardView: View {
                     )
             }
             if offsetY > 30 {
-                RoundedRectangle(cornerRadius: isIMessage ? 20 : IL.radius)
+                RoundedRectangle(cornerRadius: cardRadius)
                     .fill(Color(red: 0.25, green: 0.35, blue: 0.55).opacity(min(Double(offsetY) / 250, 0.35)))
                     .overlay(
                         VStack(spacing: 4) {
@@ -149,7 +152,7 @@ struct EmailCardView: View {
                     )
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: isIMessage ? 20 : IL.radius))
+        .clipShape(RoundedRectangle(cornerRadius: cardRadius))
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -373,17 +376,20 @@ struct EmailCardView: View {
 
             // ── Header: initial circle + name + source + time ──
             HStack(spacing: 10) {
-                // Sender initial circle (source-tinted)
+                // Sender initial circle (source-tinted gradient)
                 ZStack {
                     Circle()
-                        .fill(sourceColor.opacity(0.15))
+                        .fill(LinearGradient(
+                            colors: [sourceColor, sourceColor.opacity(0.7)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        ))
                         .frame(width: 38, height: 38)
                     Text(String(email.senderName.prefix(1)).uppercased())
                         .font(IL.serif(16, weight: .medium))
-                        .foregroundColor(sourceColor)
+                        .foregroundColor(.white)
                 }
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(email.senderName)
                         .font(IL.serif(16, weight: .medium))
                         .foregroundColor(IL.ink)
@@ -394,15 +400,14 @@ struct EmailCardView: View {
                             .font(IL.serif(11, weight: .medium))
                             .foregroundColor(sourceColor)
                         Text("·").foregroundColor(IL.inkFaint)
-                        Circle().fill(email.priority.color).frame(width: 6, height: 6)
                         Text(email.priority.label)
                             .font(IL.serif(11))
-                            .foregroundColor(email.priority.color)
+                            .foregroundColor(IL.inkFaint)
                         if let tone = email.detectedTone {
                             Text("·").foregroundColor(IL.inkFaint)
                             Text(tone.capitalized)
                                 .font(IL.serif(10)).italic()
-                                .foregroundColor(IL.accent)
+                                .foregroundColor(sourceColor.opacity(0.7))
                         }
                     }
                 }
@@ -414,7 +419,8 @@ struct EmailCardView: View {
                     .foregroundColor(IL.inkFaint)
             }
             .padding(.horizontal, 18)
-            .padding(.top, 14)
+            .padding(.top, 16)
+            .padding(.bottom, 6)
 
             // ── Subject line ──
             if !email.subject.isEmpty {
@@ -422,7 +428,7 @@ struct EmailCardView: View {
                     .font(IL.serif(17, weight: .medium))
                     .foregroundColor(IL.ink)
                     .lineLimit(2).lineSpacing(3)
-                    .padding(.horizontal, 18).padding(.top, 12)
+                    .padding(.horizontal, 18).padding(.top, 6)
             }
 
             // ── Body preview ──
@@ -430,49 +436,56 @@ struct EmailCardView: View {
                 Text(email.body)
                     .font(IL.serif(14)).foregroundColor(IL.ink.opacity(0.8))
                     .lineLimit(3).lineSpacing(4)
-                    .padding(.horizontal, 18).padding(.top, email.subject.isEmpty ? 12 : 6)
+                    .padding(.horizontal, 18).padding(.top, email.subject.isEmpty ? 8 : 4)
             }
 
             // ── AI Summary ──
             if let summary = email.aiSummary {
-                HStack(alignment: .top, spacing: 8) {
-                    Rectangle()
-                        .fill(sourceColor.opacity(0.5))
-                        .frame(width: 2)
+                VStack(alignment: .leading, spacing: 0) {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(sourceColor)
+                        .frame(width: 16, height: 1.5)
+                        .padding(.bottom, 6)
                     Text(summary)
-                        .font(IL.serif(13)).italic()
-                        .foregroundColor(IL.ink.opacity(0.65))
+                        .font(IL.serif(12)).italic()
+                        .foregroundColor(IL.ink.opacity(0.55))
                         .lineSpacing(4).lineLimit(2)
                 }
-                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 18).padding(.top, 10)
             }
 
-            // ── Draft preview ──
+            // ── Draft preview (right-aligned bubble, modern style) ──
             if let draft = email.suggestedDraft, !draft.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Suggested reply")
-                        .font(IL.serif(10)).italic().foregroundColor(IL.inkFaint)
+                HStack {
+                    Spacer(minLength: 50)
 
-                    Text(draftWithSignature(draft))
-                        .font(IL.serif(13)).foregroundColor(IL.ink.opacity(0.8))
-                        .lineSpacing(4)
-
-                    if let provSig = appState.providerSignature(for: email), !provSig.isEmpty {
-                        Rectangle().fill(cardRule).frame(height: 0.5)
-                            .padding(.vertical, 2)
-                        Text(provSig)
-                            .font(IL.serif(11))
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Your reply")
+                            .font(IL.serif(9)).italic()
                             .foregroundColor(IL.inkFaint)
-                            .lineSpacing(3)
-                            .lineLimit(1)
+
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(draftWithSignature(draft))
+                                .font(IL.serif(13))
+                                .foregroundColor(IL.ink.opacity(0.85))
+                                .lineSpacing(4)
+
+                            if let provSig = appState.providerSignature(for: email), !provSig.isEmpty {
+                                Rectangle().fill(cardRule).frame(height: 0.5)
+                                    .padding(.vertical, 4)
+                                Text(provSig)
+                                    .font(IL.serif(11))
+                                    .foregroundColor(IL.inkFaint)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(draftBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(draftBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .padding(.horizontal, 18).padding(.top, 12)
+                .padding(.horizontal, 18).padding(.top, 10)
             }
 
             // ── Chips (calendar, links, attachments) ──
@@ -706,10 +719,8 @@ struct EmailCardView: View {
         }
     }
 
-    /// Corner radius — slightly rounder for modern feel
-    private var cardRadius: CGFloat {
-        email.source == .imessage ? 20 : 16
-    }
+    /// Corner radius — 20pt for all cards (modern, consistent)
+    private var cardRadius: CGFloat { 20 }
 
     private func draftWithSignature(_ draft: String) -> String {
         var d = draft
@@ -739,7 +750,8 @@ struct EmailCardView: View {
 
     private var actionHints: some View {
         VStack(spacing: 0) {
-            Rectangle().fill(cardRule).frame(height: 0.5).padding(.horizontal, 18)
+            Rectangle().fill(cardRule).frame(height: 0.5)
+                .padding(.horizontal, 18).padding(.top, 4)
             HStack {
                 Text("← dismiss").font(IL.serif(10)).italic().foregroundColor(IL.inkFaint)
                 Spacer()
