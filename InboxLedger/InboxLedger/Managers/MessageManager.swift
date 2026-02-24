@@ -203,6 +203,7 @@ struct MessageComposeView: UIViewControllerRepresentable {
     let recipient: String
     let body: String
     var onDismiss: () -> Void
+    var onResult: ((MessageComposeResult) -> Void)?
 
     func makeUIViewController(context: UIViewControllerRepresentableContext<MessageComposeView>) -> MFMessageComposeViewController {
         let vc = MFMessageComposeViewController()
@@ -215,14 +216,16 @@ struct MessageComposeView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: MFMessageComposeViewController, context: UIViewControllerRepresentableContext<MessageComposeView>) {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onDismiss: onDismiss)
+        Coordinator(onDismiss: onDismiss, onResult: onResult)
     }
 
     class Coordinator: NSObject, MFMessageComposeViewControllerDelegate {
         let onDismiss: () -> Void
+        let onResult: ((MessageComposeResult) -> Void)?
 
-        init(onDismiss: @escaping () -> Void) {
+        init(onDismiss: @escaping () -> Void, onResult: ((MessageComposeResult) -> Void)?) {
             self.onDismiss = onDismiss
+            self.onResult = onResult
         }
 
         func messageComposeViewController(
@@ -230,7 +233,11 @@ struct MessageComposeView: UIViewControllerRepresentable {
             didFinishWith result: MessageComposeResult
         ) {
             controller.dismiss(animated: true)
-            onDismiss()
+            if let onResult {
+                onResult(result)
+            } else {
+                onDismiss()
+            }
         }
     }
 }
