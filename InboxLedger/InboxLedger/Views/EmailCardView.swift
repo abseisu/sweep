@@ -319,7 +319,7 @@ struct EmailCardView: View {
             }
 
             // ── Reply draft (outgoing — right aligned, blue bubble) ──
-            if let draft = email.suggestedDraft {
+            if let draft = email.suggestedDraft, !draft.isEmpty {
                 HStack {
                     Spacer(minLength: 60)
 
@@ -345,11 +345,10 @@ struct EmailCardView: View {
                 .padding(.top, 12)
             }
 
-            Color.clear.frame(height: 8)
-
             // ── Bottom hints ──
             if isTopCard {
-                Rectangle().fill(IL.imsgRule.opacity(0.4)).frame(height: 0.5).padding(.horizontal, 18)
+                Rectangle().fill(IL.imsgRule.opacity(0.4)).frame(height: 0.5)
+                    .padding(.horizontal, 18).padding(.top, 4)
 
                 HStack {
                     Text("← dismiss").font(IL.serif(10)).italic().foregroundColor(IL.imsgInkLight)
@@ -478,9 +477,6 @@ struct EmailCardView: View {
 
             // ── Chips (calendar, links, attachments) ──
             chipsSection
-
-            // Bottom padding before hints
-            Color.clear.frame(height: 6)
 
             // ── Bottom hints ──
             if isTopCard { actionHints }
