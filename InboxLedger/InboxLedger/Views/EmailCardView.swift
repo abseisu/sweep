@@ -34,11 +34,11 @@ struct EmailCardView: View {
         Group {
             if isIMessage {
                 iMessageCardBody
+                    .frame(maxHeight: maxHeight) // iMessage has ScrollView — needs bounding
             } else {
-                emailCardBody
+                emailCardBody // sizes naturally to content — no forced height
             }
         }
-        .frame(maxHeight: maxHeight)
         .clipShape(RoundedRectangle(cornerRadius: cardRadius))
         .background(
             RoundedRectangle(cornerRadius: cardRadius)
@@ -454,35 +454,23 @@ struct EmailCardView: View {
                 .padding(.horizontal, 18).padding(.top, 10)
             }
 
-            // ── Draft preview (right-aligned bubble, modern style) ──
+            // ── Suggested reply ──
             if let draft = email.suggestedDraft, !draft.isEmpty {
-                HStack {
-                    Spacer(minLength: 50)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Suggested reply")
+                        .font(IL.serif(10, weight: .medium))
+                        .foregroundColor(sourceColor.opacity(0.7))
 
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text("Your reply")
-                            .font(IL.serif(9)).italic()
+                    Text(draftWithSignature(draft))
+                        .font(IL.serif(13))
+                        .foregroundColor(IL.ink.opacity(0.75))
+                        .lineSpacing(4)
+
+                    if let provSig = appState.providerSignature(for: email), !provSig.isEmpty {
+                        Text(provSig)
+                            .font(IL.serif(11))
                             .foregroundColor(IL.inkFaint)
-
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(draftWithSignature(draft))
-                                .font(IL.serif(13))
-                                .foregroundColor(IL.ink.opacity(0.85))
-                                .lineSpacing(4)
-
-                            if let provSig = appState.providerSignature(for: email), !provSig.isEmpty {
-                                Rectangle().fill(cardRule).frame(height: 0.5)
-                                    .padding(.vertical, 4)
-                                Text(provSig)
-                                    .font(IL.serif(11))
-                                    .foregroundColor(IL.inkFaint)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(draftBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 18).padding(.top, 10)
@@ -491,8 +479,12 @@ struct EmailCardView: View {
             // ── Chips (calendar, links, attachments) ──
             chipsSection
 
-            // ── Bottom hints ──
-            if isTopCard { actionHints }
+            // ── Bottom hints (or breathing room) ──
+            if isTopCard {
+                actionHints
+            } else {
+                Spacer().frame(height: 12)
+            }
         }
     }
 
