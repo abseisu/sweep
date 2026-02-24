@@ -48,6 +48,7 @@ interface ScoreRequest {
   attachmentSummary?: string;
   linkSummary?: string;
   recipients?: string;
+  date?: string;
 }
 
 interface ScoreResult {
@@ -339,6 +340,8 @@ WHAT TO NEVER SURFACE (replyability 0):
 
 THE TEST: Ask yourself "Would a real person actually sit down and type a reply to this?" If the answer is no or probably not, replyability = 0.
 
+TEMPORAL AWARENESS: Each email includes a "Sent" timestamp and the current date/time is provided. When drafting replies, interpret relative time references ("today", "tomorrow", "this afternoon", "tonight", etc.) based on when the email was SENT, not the current time. If the email was sent in the past and references a time that has already passed (e.g., an email from yesterday saying "meet today at 3pm"), acknowledge this in the draft — for example, suggest rescheduling or apologize for the late reply. Never draft a reply that accepts a time slot that has already passed as if it's still upcoming.
+
 Respond in JSON format: { "id": "<the email ID>", "replyability": <number>, "summary": "<string>", "draft": "<string or null>", "tone": "<string>", "category": "<string>", "suggestReplyAll": <boolean> }
 For multiple emails, return: { "emails": [...] } with the same fields. IMPORTANT: Always include the exact "id" from each email in your response.`;
 
@@ -350,11 +353,17 @@ For multiple emails, return: { "emails": [...] } with the same fields. IMPORTANT
 }
 
 function buildRedraftSystemPrompt(): string {
-  return `You are a professional email assistant. Rewrite the draft according to the user's instruction. Return ONLY the rewritten email body, no preamble.`;
+  return `You are a professional email assistant. Rewrite the draft according to the user's instruction. Return ONLY the rewritten email body, no preamble.
+
+TEMPORAL AWARENESS: The original email's sent date and the current date are provided. Interpret any relative time references ("today", "tomorrow", "this afternoon", etc.) based on when the email was SENT. If the referenced time has already passed, the draft should reflect that — e.g., suggest rescheduling or acknowledge the delay. Never write a reply that treats a past time as still upcoming.`;
 }
 
 function buildRedraftUserPrompt(req: RedraftRequest): string {
-  return `Original email from ${req.email.from}:
+  const now = new Date().toISOString();
+  return `Current date/time: ${now}
+${req.email.date ? `Email was sent: ${req.email.date}` : ''}
+
+Original email from ${req.email.from}:
 Subject: ${req.email.subject}
 Body: ${req.email.body.slice(0, 3000)}
 
@@ -369,13 +378,15 @@ Rewrite the draft according to the instruction above. Return ONLY the new draft 
 }
 
 function formatEmailBatch(emails: ScoreRequest[]): string {
-  return emails.map((e, idx) => `
+  const now = new Date().toISOString();
+  return `Current date/time: ${now}\n` + emails.map((e, idx) => `
 --- EMAIL ${idx + 1} ---
 ID: ${e.id}
 Source: ${e.source}
 From: ${e.from} <${e.fromEmail}>
 ${e.recipients ? `To: ${e.recipients}` : ''}
 Subject: ${e.subject}
+${e.date ? `Sent: ${e.date}` : ''}
 Status: ${e.isUnread ? 'Unread' : 'Read'}${e.hasReplied ? ' (Already replied)' : ''}
 ${e.attachmentSummary ? `Attachments: ${e.attachmentSummary}` : ''}
 ${e.linkSummary ? `Links: ${e.linkSummary}` : ''}
