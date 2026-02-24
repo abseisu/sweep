@@ -122,7 +122,7 @@ final class AIManager {
                 ? email.detectedLinks.prefix(3).map { "\($0.linkType.label): \($0.displayText)" }.joined(separator: ", ")
                 : nil,
             recipients: email.toRecipients.isEmpty ? nil : email.toRecipients.joined(separator: ", "),
-            date: email.date
+            date: email.date.map { ISO8601DateFormatter().string(from: $0) }
         )
     }
 
