@@ -1,0 +1,45 @@
+# fly.toml — Fly.io deployment configuration
+
+app = "ledger-api-adnanbseisu"
+primary_region = "ewr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  LOG_LEVEL = "info"
+  PORT = "3000"
+
+[processes]
+  api = "node dist/server.js"
+  worker = "node dist/worker/index.js"
+
+[deploy]
+  strategy = "rolling"
+
+# ── API Server (only the api process gets HTTP traffic) ──
+[[services]]
+  processes = ["api"]
+  internal_port = 3000
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
+
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "5s"
+    path = "/health"
+    method = "GET"
+    
