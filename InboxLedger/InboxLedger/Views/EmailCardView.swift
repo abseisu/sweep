@@ -455,6 +455,7 @@ struct EmailCardView: View {
                         .foregroundColor(IL.ink.opacity(0.65))
                         .lineSpacing(4).lineLimit(2)
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 18).padding(.top, 10)
             }
 
