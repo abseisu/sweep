@@ -26,8 +26,8 @@ async function migrate() {
       provider TEXT NOT NULL,
       email TEXT NOT NULL,
       display_name TEXT,
-      refresh_token_encrypted BYTEA,
-      refresh_token_iv BYTEA,
+      refresh_token_encrypted TEXT,
+      refresh_token_iv TEXT,
       token_expires_at TIMESTAMPTZ,
       is_enabled BOOLEAN DEFAULT true NOT NULL,
       last_scan_at TIMESTAMPTZ,
@@ -97,6 +97,27 @@ async function migrate() {
       email_count INT DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
     )
+  `;
+
+  // ── Fix schema mismatch: BYTEA → TEXT for encrypted token columns ──
+  // The ORM schema (schema.ts) and crypto module use base64 strings (TEXT),
+  // but the original migration created these as BYTEA. This caused silent
+  // corruption when Postgres auto-cast base64 strings to/from binary.
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'accounts'
+          AND column_name = 'refresh_token_encrypted'
+          AND data_type = 'bytea'
+      ) THEN
+        ALTER TABLE accounts
+          ALTER COLUMN refresh_token_encrypted TYPE TEXT USING encode(refresh_token_encrypted, 'escape'),
+          ALTER COLUMN refresh_token_iv TYPE TEXT USING encode(refresh_token_iv, 'escape');
+        RAISE NOTICE 'Migrated accounts.refresh_token_encrypted/iv from BYTEA to TEXT';
+      END IF;
+    END $$
   `;
 
   // Create indexes

@@ -6,8 +6,8 @@ import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.js';
 import { db, schema } from '../db/index.js';
 import { eq, and, sql } from 'drizzle-orm';
-import { redis } from '../lib/redis.js';
-import { signJWT } from '../lib/jwt.js';
+import { redis, rateLimit } from '../lib/redis.js';
+import { signJWT, verifyJWTSignatureOnly } from '../lib/jwt.js';
 import { scoreEmails } from '../services/ai.js';
 
 const PAIR_CODE_TTL = 300; // 5 minutes
@@ -557,26 +557,47 @@ export default async function imessageRoutes(app: FastifyInstance) {
   });
 
   // ── Mac Relay Re-Auth ──
-  // When the Mac relay gets a 401, it calls this with its old userId
-  // to check if the iOS user migrated. If so, returns a fresh JWT.
+  // When the Mac relay gets a 401, it sends its expired JWT as a Bearer token.
+  // We verify the signature (ignoring expiry) to prove the Mac once held a valid token,
+  // then issue a fresh JWT. This prevents anyone from minting JWTs with just a userId.
   app.post('/imessage/reauth', async (request, reply) => {
-    const body = z.object({
-      oldUserId: z.string(),
-      macDeviceId: z.string(),
-    }).parse(request.body);
+    // Require the expired JWT as proof of prior authentication
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return reply.code(401).send({ error: 'Authentication failed' });
+    }
+
+    const oldToken = authHeader.slice(7);
+    if (oldToken.split('.').length !== 3 || oldToken.length > 2048) {
+      return reply.code(401).send({ error: 'Authentication failed' });
+    }
+
+    let oldUserId: string;
+    try {
+      // Verify signature but allow expired tokens — proves this Mac once had a valid JWT
+      const payload = await verifyJWTSignatureOnly(oldToken);
+      if (!payload.sub) {
+        return reply.code(401).send({ error: 'Authentication failed' });
+      }
+      oldUserId = payload.sub;
+    } catch {
+      return reply.code(401).send({ error: 'Authentication failed' });
+    }
+
+    // Rate limit: 5 reauth attempts per user per hour
+    const rl = await rateLimit(`reauth:${oldUserId}`, 5, 3600);
+    if (!rl.allowed) return reply.code(429).send({ error: 'Too many requests' });
 
     // Check if there's a fresh JWT waiting (set by register-device migration)
-    const stored = await redis.get(`imsg_mac_jwt:${body.oldUserId}`);
+    const stored = await redis.get(`imsg_mac_jwt:${oldUserId}`);
     if (!stored) {
       // Also check if old relay info was moved — find which user has it now
-      // by looking for a device with the migrated mac device ID pattern
       const devices = await db.select()
         .from(schema.devices)
-        .where(eq(schema.devices.deviceId, `mac_relay_${body.oldUserId}`))
+        .where(eq(schema.devices.deviceId, `mac_relay_${oldUserId}`))
         .limit(1);
 
       if (devices.length > 0) {
-        // Device still exists under old ID — hasn't been migrated
         const { token, expiresAt } = await signJWT(devices[0].userId, devices[0].deviceId);
         return { jwt: token, userId: devices[0].userId, expiresAt: expiresAt.toISOString() };
       }
@@ -586,8 +607,8 @@ export default async function imessageRoutes(app: FastifyInstance) {
 
     try {
       const parsed = JSON.parse(stored);
-      await redis.del(`imsg_mac_jwt:${body.oldUserId}`);
-      return { jwt: parsed.jwt, userId: body.oldUserId, expiresAt: parsed.expiresAt };
+      await redis.del(`imsg_mac_jwt:${oldUserId}`);
+      return { jwt: parsed.jwt, userId: oldUserId, expiresAt: parsed.expiresAt };
     } catch {
       return reply.code(500).send({ error: 'Migration data corrupted' });
     }

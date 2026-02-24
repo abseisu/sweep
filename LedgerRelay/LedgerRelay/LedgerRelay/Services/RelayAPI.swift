@@ -145,9 +145,11 @@ final class RelayAPI {
         let expiresAt: String
     }
 
-    func reauth(oldUserId: String, macDeviceId: String) async throws -> ReauthResult {
-        struct ReauthRequest: Encodable { let oldUserId: String; let macDeviceId: String }
-        return try await post("/imessage/reauth", body: ReauthRequest(oldUserId: oldUserId, macDeviceId: macDeviceId))
+    /// Re-authenticate by sending the expired JWT as a Bearer token.
+    /// The backend verifies the signature (ignoring expiry) to prove prior auth.
+    func reauth(expiredJwt: String) async throws -> ReauthResult {
+        struct Empty: Encodable {}
+        return try await post("/imessage/reauth", body: Empty(), jwt: expiredJwt)
     }
 
     // MARK: - HTTP Helpers

@@ -5,7 +5,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db, schema } from '../db/index.js';
 import { eq, and } from 'drizzle-orm';
-import { signJWT } from '../lib/jwt.js';
+import { signJWT, verifyJWTSignatureOnly } from '../lib/jwt.js';
 import { encryptToken } from '../lib/crypto.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { rateLimit, redis } from '../lib/redis.js';
@@ -194,8 +194,13 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/auth/register-device', async (request, reply) => {
     const body = z.object({
       deviceId: z.string().min(1),
-      previousUserId: z.string().optional(),  // iOS sends this if it had a prior user
+      previousUserId: z.string().optional(),  // DEPRECATED — kept for backward compat, ignored
+      previousJwt: z.string().optional(),     // Expired JWT proving ownership of prior account
     }).parse(request.body);
+
+    // Rate limit: 10 registrations per minute per device
+    const rl = await rateLimit(`register-device:${body.deviceId}`, 10, 60);
+    if (!rl.allowed) return reply.code(429).send({ error: 'Too many requests' });
 
     // Check if this device already has a user
     const existingDevice = await db
@@ -230,11 +235,21 @@ export default async function authRoutes(app: FastifyInstance) {
       });
 
       // ── Migrate Mac relay pairing from previous user ──
-      // If iOS had a previous userId with an active Mac relay,
-      // move the relay info and device to the new user so the Mac
-      // continues working seamlessly without re-pairing.
-      const oldUserId = body.previousUserId;
-      if (oldUserId && oldUserId !== userId) {
+      // Requires the old JWT (expired OK) to prove ownership of the prior account.
+      // This prevents anyone from hijacking another user's relay by guessing their userId.
+      let oldUserId: string | null = null;
+      if (body.previousJwt) {
+        try {
+          const payload = await verifyJWTSignatureOnly(body.previousJwt);
+          if (payload.sub && payload.sub !== userId) {
+            oldUserId = payload.sub;
+          }
+        } catch {
+          // Invalid JWT — skip migration silently (not an error, just no migration)
+        }
+      }
+
+      if (oldUserId) {
         try {
           const relayInfo = await redis.get(`imsg_relay:${oldUserId}`);
           if (relayInfo) {

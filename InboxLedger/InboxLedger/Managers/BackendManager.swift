@@ -84,11 +84,13 @@ final class BackendManager {
             print("🔑 Fresh install detected — will request ledger reset")
         }
 
-        struct DeviceRegister: Encodable { let deviceId: String; let previousUserId: String?; let freshInstall: Bool }
+        struct DeviceRegister: Encodable { let deviceId: String; let previousJwt: String?; let freshInstall: Bool }
         let deviceId = getOrCreateDeviceId()
-        let previousUserId = UserDefaults.standard.string(forKey: "ledger_user_id")
-        print("🔑 Device ID: \(deviceId), previous user: \(previousUserId?.prefix(8) ?? "none"), freshInstall: \(isFreshInstall)")
-        urlRequest.httpBody = try JSONEncoder().encode(DeviceRegister(deviceId: deviceId, previousUserId: previousUserId, freshInstall: isFreshInstall))
+        // Send the old JWT (may be expired) as proof of prior account ownership for migration.
+        // This replaces sending the raw userId which could be guessed.
+        let previousJwt = KeychainHelper.get("ledger_jwt")
+        print("🔑 Device ID: \(deviceId), has previous JWT: \(previousJwt != nil), freshInstall: \(isFreshInstall)")
+        urlRequest.httpBody = try JSONEncoder().encode(DeviceRegister(deviceId: deviceId, previousJwt: previousJwt, freshInstall: isFreshInstall))
 
         let (data, response) = try await URLSession.shared.data(for: urlRequest)
         guard let http = response as? HTTPURLResponse else {

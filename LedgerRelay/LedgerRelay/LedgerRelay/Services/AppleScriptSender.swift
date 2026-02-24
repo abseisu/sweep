@@ -10,13 +10,11 @@ enum AppleScriptSender {
     /// Returns true if the message was sent successfully.
     @discardableResult
     static func sendMessage(to recipient: String, text: String) -> Bool {
-        // Escape for shell embedding inside osascript
-        let escapedText = text
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        let escapedRecipient = recipient
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
+        // Sanitize for safe embedding in AppleScript quoted strings.
+        // CRITICAL: Must escape ALL characters that could break out of
+        // the string context — not just quotes and backslashes.
+        let escapedText = sanitizeForAppleScript(text)
+        let escapedRecipient = sanitizeForAppleScript(recipient)
 
         // Primary approach: send via iMessage service buddy
         let script = """
@@ -72,6 +70,31 @@ enum AppleScriptSender {
     }
 
     // MARK: - Private
+
+    /// Sanitize a string for safe interpolation into an AppleScript quoted string.
+    /// Strips all control characters (newlines, tabs, carriage returns, etc.) that could
+    /// break out of the quoted string context and inject arbitrary AppleScript commands.
+    /// Then escapes backslashes and double quotes.
+    private static func sanitizeForAppleScript(_ input: String) -> String {
+        var result = ""
+        for scalar in input.unicodeScalars {
+            switch scalar {
+            case "\\":
+                result += "\\\\"
+            case "\"":
+                result += "\\\""
+            default:
+                // Strip control characters (U+0000–U+001F and U+007F).
+                // These include \n, \r, \t which could break AppleScript string boundaries.
+                if scalar.value < 0x20 || scalar.value == 0x7F {
+                    result += " "
+                } else {
+                    result += String(scalar)
+                }
+            }
+        }
+        return result
+    }
 
     /// Run an AppleScript via osascript subprocess.
     /// Using Process/osascript is more reliable than NSAppleScript for TCC permission handling.

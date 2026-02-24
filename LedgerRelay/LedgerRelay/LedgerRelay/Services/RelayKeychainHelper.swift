@@ -1,38 +1,37 @@
-// Managers/KeychainHelper.swift
-// Thin wrapper around the iOS Keychain for storing the Ledger JWT securely.
+// RelayKeychainHelper.swift
+// Secure storage for the Mac relay JWT using the macOS Keychain.
+// Replaces UserDefaults storage to prevent other processes from reading the token.
 
-import Security
 import Foundation
+import Security
 
-enum KeychainHelper {
+enum RelayKeychainHelper {
+    private static let service = "com.ledger.relay"
 
     static func set(_ value: String, forKey key: String) {
         guard let data = value.data(using: .utf8) else { return }
 
-        // Delete any existing item first (query without kSecValueData)
+        // Build the query for deletion (without kSecValueData)
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: key,
         ]
         SecItemDelete(deleteQuery as CFDictionary)
 
-        // ThisDeviceOnly — prevents iCloud Keychain sync, credential only accessible
-        // on this physical device after first unlock.
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: key,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-        ]
+        // Add the new item
+        var addQuery = deleteQuery
+        addQuery[kSecValueData as String] = data
         SecItemAdd(addQuery as CFDictionary, nil)
     }
 
     static func get(_ key: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var result: AnyObject?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
@@ -45,7 +44,8 @@ enum KeychainHelper {
     static func delete(_ key: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: key
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
         ]
         SecItemDelete(query as CFDictionary)
     }

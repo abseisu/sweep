@@ -42,9 +42,13 @@ final class RelayState: ObservableObject {
     private let userIdKey = "relay_user_id"
     private let lastMessageDateKey = "relay_last_message_date"
 
+    /// JWT stored in Keychain — not accessible to other processes (unlike UserDefaults).
     var jwt: String? {
-        get { UserDefaults.standard.string(forKey: jwtKey) }
-        set { UserDefaults.standard.set(newValue, forKey: jwtKey) }
+        get { RelayKeychainHelper.get(jwtKey) }
+        set {
+            if let v = newValue { RelayKeychainHelper.set(v, forKey: jwtKey) }
+            else { RelayKeychainHelper.delete(jwtKey) }
+        }
     }
 
     var userId: String? {
@@ -66,7 +70,7 @@ final class RelayState: ObservableObject {
         
         if !hasCompletedSetup {
             // Fresh install or re-install — clear any stale credentials from previous install
-            UserDefaults.standard.removeObject(forKey: jwtKey)
+            RelayKeychainHelper.delete(jwtKey)
             UserDefaults.standard.removeObject(forKey: userIdKey)
             UserDefaults.standard.removeObject(forKey: lastMessageDateKey)
         }
@@ -458,14 +462,16 @@ final class RelayState: ObservableObject {
     }
 
     /// Attempts to re-authenticate with the backend when the JWT is rejected.
+    /// Sends the expired JWT as a Bearer token to prove prior authentication
+    /// (the backend verifies the signature but allows expired tokens).
     private func attemptReauth() async {
-        guard let oldUserId = userId else {
+        guard let oldToken = jwt else {
             connectionStatus = .error
             return
         }
 
         do {
-            let result = try await api.reauth(oldUserId: oldUserId, macDeviceId: "mac_relay_\(oldUserId)")
+            let result = try await api.reauth(expiredJwt: oldToken)
             jwt = result.jwt
             userId = result.userId
             connectionStatus = .connected

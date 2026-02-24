@@ -2,7 +2,7 @@
 // JWT signing and verification using ES256 (ECDSA P-256).
 // Includes jti (token ID) for revocation and nbf (not-before) for replay protection.
 
-import { SignJWT, jwtVerify, importPKCS8, importSPKI, JWTPayload, KeyLike } from 'jose';
+import { SignJWT, jwtVerify, importPKCS8, importSPKI, JWTPayload, KeyLike, errors, decodeJwt } from 'jose';
 import { randomBytes } from 'crypto';
 
 const ALG = 'ES256';
@@ -62,4 +62,32 @@ export async function verifyJWT(token: string): Promise<LedgerJWTPayload> {
     clockTolerance: 30,
   });
   return payload as LedgerJWTPayload;
+}
+
+/**
+ * Verify a JWT's cryptographic signature but allow expired tokens.
+ * Used for re-auth flows where the caller proves they once held a valid token.
+ * Still validates issuer, audience, and subject — only expiry is relaxed.
+ */
+export async function verifyJWTSignatureOnly(token: string): Promise<LedgerJWTPayload> {
+  const key = await getPublicKey();
+  try {
+    const { payload } = await jwtVerify(token, key, {
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      clockTolerance: 30,
+    });
+    return payload as LedgerJWTPayload;
+  } catch (err) {
+    // JWTExpired is thrown AFTER the signature is verified successfully.
+    // Safe to trust the payload — the token was legitimately issued by us.
+    if (err instanceof errors.JWTExpired) {
+      const payload = decodeJwt(token);
+      if (payload.iss !== ISSUER || payload.aud !== AUDIENCE || !payload.sub) {
+        throw new Error('Invalid expired token claims');
+      }
+      return payload as LedgerJWTPayload;
+    }
+    throw err;
+  }
 }
