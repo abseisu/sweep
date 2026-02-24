@@ -676,20 +676,13 @@ struct DashboardView: View {
 
     private var cardStackView: some View {
         GeometryReader { geo in
-            ZStack {
-                ForEach(Array(appState.items.prefix(3).enumerated().reversed()), id: \.element.id) { index, item in
-                    EmailCardView(email: item, isTopCard: index == 0, maxHeight: geo.size.height - 20)
-                        .offset(y: CGFloat(index) * 5)
-                        .scaleEffect(1.0 - CGFloat(index) * 0.02)
-                        .opacity(index == 0 ? 1.0 : 0.35)
-                        .zIndex(Double(3 - index))
-                        // Clip back cards so their bottom hints don't show below the top card
-                        .clipped()
-                }
+            if let item = appState.items.first {
+                EmailCardView(email: item, isTopCard: true, maxHeight: geo.size.height - 20)
+                    .transition(.opacity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.horizontal, 20)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.horizontal, 20)
     }
 }
 
