@@ -203,7 +203,7 @@ struct MessageComposeView: UIViewControllerRepresentable {
     let recipient: String
     let body: String
     var onDismiss: () -> Void
-    var onResult: ((MessageComposeResult) -> Void)?
+    var onResult: ((MessageComposeResult) -> Void)? = nil
 
     func makeUIViewController(context: UIViewControllerRepresentableContext<MessageComposeView>) -> MFMessageComposeViewController {
         let vc = MFMessageComposeViewController()
