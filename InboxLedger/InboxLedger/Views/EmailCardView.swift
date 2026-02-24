@@ -8,7 +8,6 @@ struct EmailCardView: View {
     @EnvironmentObject var appState: AppState
     let email: LedgerEmail
     let isTopCard: Bool
-    var maxHeight: CGFloat = .infinity
 
     @State private var offset: CGFloat = 0
     @State private var verticalOffset: CGFloat = 0
@@ -40,7 +39,6 @@ struct EmailCardView: View {
                 emailCardBody
             }
         }
-        .frame(maxHeight: maxHeight)
         .clipShape(RoundedRectangle(cornerRadius: isIMessage ? 20 : cardRadius))
         .background(
             RoundedRectangle(cornerRadius: isIMessage ? 20 : cardRadius)
@@ -919,7 +917,7 @@ struct EmailCardView_Previews: PreviewProvider {
     static var previews: some View {
         ZStack {
             IL.paper.ignoresSafeArea()
-            EmailCardView(email: .preview, isTopCard: true, maxHeight: 500)
+            EmailCardView(email: .preview, isTopCard: true)
                 .padding().environmentObject(AppState())
         }
     }

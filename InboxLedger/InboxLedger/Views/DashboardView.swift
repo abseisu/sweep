@@ -672,34 +672,39 @@ struct DashboardView: View {
         .padding(.horizontal, 32)
     }
 
-    // MARK: - Cards (taller, uses more vertical space)
+    // MARK: - Cards (content-hugging with decorative deck edge)
 
     private var cardStackView: some View {
-        GeometryReader { geo in
-            let maxCardHeight = geo.size.height - 20
-            let visibleCards = Array(appState.items.prefix(3))
+        VStack(spacing: 0) {
+            if let topItem = appState.items.first {
+                ZStack(alignment: .top) {
+                    // Decorative "deck" edge — hints at more cards underneath
+                    if appState.items.count > 1 {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(IL.card.opacity(0.6))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(Color.black.opacity(0.06), lineWidth: 0.5)
+                            )
+                            .padding(.horizontal, 6)
+                            .padding(.top, 8)
+                            .frame(height: 20)
+                    }
 
-            ZStack(alignment: .top) {
-                ForEach(Array(visibleCards.enumerated().reversed()), id: \.element.id) { index, item in
-                    let isTop = index == 0
-                    let depth = CGFloat(index)
-
-                    EmailCardView(email: item, isTopCard: isTop)
-                        .frame(maxHeight: maxCardHeight)
-                        .scaleEffect(1.0 - depth * 0.04, anchor: .top)
-                        .offset(y: depth * 8)
-                        .opacity(Double(1.0 - depth * 0.15))
-                        .allowsHitTesting(isTop)
-                        .zIndex(Double(visibleCards.count - index))
+                    // Top card — content-hugging, no fixed height
+                    EmailCardView(email: topItem, isTopCard: true)
+                        .zIndex(1)
                         .transition(.asymmetric(
                             insertion: .opacity,
                             removal: .opacity.combined(with: .move(edge: .trailing))
                         ))
                 }
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: appState.items.map(\.id))
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: appState.items.map(\.id))
+
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .top)
         .padding(.horizontal, 20)
     }
 }
