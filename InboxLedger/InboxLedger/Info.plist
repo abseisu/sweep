@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>msauthv2</string>
+        <string>msauthv3</string>
+    </array>
+
+    <key>CFBundleURLTypes</key>
+    <array>
+        <!-- MSAL / Outlook redirect -->
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLName</key>
+            <string>msauthv3</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>msauth.com.sendbird.educare.InboxLedger</string>
+            </array>
+        </dict>
+        <!-- Google Sign-In redirect -->
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLName</key>
+            <string>google-sign-in</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.googleusercontent.apps.697711459258-8j5nlimlhvvr7l38s7d57on88m1ptoph</string>
+            </array>
+        </dict>
+        <!-- Slack OAuth callback -->
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLName</key>
+            <string>slack-callback</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>ledger</string>
+            </array>
+        </dict>
+    </array>
+
+    <key>GIDClientID</key>
+    <string>697711459258-8j5nlimlhvvr7l38s7d57on88m1ptoph.apps.googleusercontent.com</string>
+
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Ledger checks your calendar to suggest available times in reply drafts and to avoid scheduling your daily window during events.</string>
+
+    <key>NSCalendarsUsageDescription</key>
+    <string>Ledger checks your calendar to suggest available times in reply drafts and to avoid scheduling your daily window during events.</string>
+</dict>
+</plist>
