@@ -539,8 +539,11 @@ final class AppState: ObservableObject {
 
     /// Called when user opens the app in stack mode.
     /// First open: full 24h fetch. Subsequent opens: incremental scan since last fetch.
+    /// Also starts the periodic refresh timer so the stack stays fresh while the app is open.
     func stackModeAppOpened() async {
         guard ledgerMode == .stack else { return }
+
+        startStackRefreshTimer()
 
         if !hasFetchedThisWindow {
             // First fetch this session — full 24h lookback
@@ -552,6 +555,35 @@ final class AppState: ObservableObject {
                 await checkForNewItems()
             }
         }
+
+        // After fetching, evaluate whether a batch notification is warranted
+        evaluateStackNotification()
+    }
+
+    /// How often to refresh the stack while the app is in the foreground (seconds).
+    private let stackRefreshInterval: TimeInterval = 10 * 60  // 10 minutes
+
+    /// Starts a periodic timer that refreshes the stack while the app is open.
+    /// Checks for new emails, scores them, and evaluates batch notifications.
+    func startStackRefreshTimer() {
+        guard ledgerMode == .stack else { return }
+        // Avoid duplicate timers
+        stackRefreshTimer?.invalidate()
+        stackRefreshTimer = Timer.scheduledTimer(withTimeInterval: stackRefreshInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                guard !self.isLoading else { return }  // Skip if a fetch is already in progress
+                print("🔄 Stack refresh timer fired — checking for new items")
+                await self.checkForNewItems()
+                self.evaluateStackNotification()
+            }
+        }
+    }
+
+    /// Stops the periodic stack refresh timer (called when app enters background).
+    func stopStackRefreshTimer() {
+        stackRefreshTimer?.invalidate()
+        stackRefreshTimer = nil
     }
 
     /// Fetches email signatures from Gmail and Outlook for all connected accounts.

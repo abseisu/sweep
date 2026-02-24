@@ -147,6 +147,9 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            // Stop the periodic stack refresh timer — backend handles background scanning
+            appState.stopStackRefreshTimer()
+
             // If ledger was cleared THIS session, send congrats ONCE
             if appState.ledgerWasCleared {
                 NotificationManager.shared.sendClearedNotification()
