@@ -2,6 +2,7 @@
 // Ledger
 
 import SwiftUI
+import UIKit
 
 struct EmailCardView: View {
     @EnvironmentObject var appState: AppState
@@ -14,6 +15,9 @@ struct EmailCardView: View {
     @State private var showDraftEditor = false
     @State private var showIMessageDraftEditor = false
     @State private var showSnoozed = false
+    @State private var hasPassedThreshold = false  // Haptic: tracks threshold crossing
+    @State private var hasPassedVerticalThreshold = false
+    @State private var summaryExpanded = false      // Expandable AI summary
     private let threshold: CGFloat = 120
 
     /// Show specific account email when user has multiple of same service
@@ -79,17 +83,36 @@ struct EmailCardView: View {
                     if abs(h) > abs(v) {
                         offset = h
                         offsetY = 0
+                        // Haptic feedback when crossing threshold
+                        if abs(h) >= threshold && !hasPassedThreshold {
+                            hasPassedThreshold = true
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        } else if abs(h) < threshold {
+                            hasPassedThreshold = false
+                        }
                     } else if v > 0 {
                         offsetY = v
                         offset = 0
+                        // Haptic for vertical (snooze) threshold
+                        if v >= threshold && !hasPassedVerticalThreshold {
+                            hasPassedVerticalThreshold = true
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        } else if v < threshold {
+                            hasPassedVerticalThreshold = false
+                        }
                     }
                 }
                 .onEnded { value in
+                    hasPassedThreshold = false
+                    hasPassedVerticalThreshold = false
                     let h = value.translation.width
                     let v = value.translation.height
+                    let velocity = value.predictedEndTranslation.width
+                    // Velocity-sensitive: a fast flick needs less distance
+                    let effectiveThreshold: CGFloat = abs(velocity) > 600 ? threshold * 0.6 : threshold
                     if abs(h) > abs(v) {
-                        handleSwipe(h)
-                    } else if v > threshold {
+                        handleSwipe(h, effectiveThreshold: effectiveThreshold)
+                    } else if v > (abs(value.predictedEndTranslation.height) > 600 ? threshold * 0.6 : threshold) {
                         handleSnooze()
                     } else {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
@@ -439,14 +462,15 @@ struct EmailCardView: View {
             }
 
             // ── Body preview ──
-            if email.subject.isEmpty || email.source != .gmail {
+            // Always show 1-2 lines of body for context, even when subject is present
+            if !email.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(email.body)
                     .font(IL.serif(14)).foregroundColor(IL.ink.opacity(0.8))
-                    .lineLimit(3).lineSpacing(4)
+                    .lineLimit(email.subject.isEmpty ? 3 : 2).lineSpacing(4)
                     .padding(.horizontal, 18).padding(.top, email.subject.isEmpty ? 8 : 4)
             }
 
-            // ── AI Summary ──
+            // ── AI Summary (tap to expand) ──
             if let summary = email.aiSummary {
                 VStack(alignment: .leading, spacing: 0) {
                     RoundedRectangle(cornerRadius: 1)
@@ -456,9 +480,23 @@ struct EmailCardView: View {
                     Text(summary)
                         .font(IL.serif(12)).italic()
                         .foregroundColor(IL.ink.opacity(0.55))
-                        .lineSpacing(4).lineLimit(2)
+                        .lineSpacing(4)
+                        .lineLimit(summaryExpanded ? nil : 2)
+                        .animation(.easeInOut(duration: 0.2), value: summaryExpanded)
+                    if summary.count > 80 {
+                        Text(summaryExpanded ? "Show less" : "More")
+                            .font(IL.serif(10)).italic()
+                            .foregroundColor(sourceColor.opacity(0.5))
+                            .padding(.top, 3)
+                    }
                 }
                 .padding(.horizontal, 18).padding(.top, 10)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        summaryExpanded.toggle()
+                    }
+                }
             }
 
             // ── Suggested reply ──
@@ -845,10 +883,12 @@ struct EmailCardView: View {
         return "\(truncBase)….\(ext)"
     }
 
-    private func handleSwipe(_ translation: CGFloat) {
-        if translation > threshold {
+    private func handleSwipe(_ translation: CGFloat, effectiveThreshold: CGFloat? = nil) {
+        let t = effectiveThreshold ?? threshold
+        if translation > t {
             // Swipe right → Send
             SoundManager.shared.play(.send)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
             withAnimation(.easeOut(duration: 0.3)) { offset = 500 }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 if email.source == .imessage {
@@ -870,9 +910,10 @@ struct EmailCardView: View {
                     appState.dismiss(item: email)
                 }
             }
-        } else if translation < -threshold {
+        } else if translation < -t {
             // Swipe left → Dismiss
             SoundManager.shared.play(.dismiss)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(.easeOut(duration: 0.3)) { offset = -500 }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 appState.dismiss(item: email)
@@ -887,6 +928,7 @@ struct EmailCardView: View {
 
     private func handleSnooze() {
         SoundManager.shared.play(.snooze)
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         withAnimation(.easeOut(duration: 0.3)) { offsetY = 600 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             appState.snooze(item: email)

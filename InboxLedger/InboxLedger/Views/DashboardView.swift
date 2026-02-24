@@ -2,6 +2,7 @@
 // Ledger
 
 import SwiftUI
+import UIKit
 
 struct DashboardView: View {
     @EnvironmentObject var appState: AppState
@@ -10,6 +11,7 @@ struct DashboardView: View {
     @State private var timeRemaining: String = ""
     @State private var showFirstRunBanner = true
     @State private var showModeSwitchBanner = true
+    @State private var isRefreshing = false
 
     // Timer to update countdown
     let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -186,6 +188,24 @@ struct DashboardView: View {
                         .foregroundColor(Color(red: 0.25, green: 0.35, blue: 0.55))
                     }
 
+                    // Refresh button — check for new emails
+                    if !appState.items.isEmpty && !isRefreshing {
+                        Button {
+                            Task {
+                                isRefreshing = true
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                await appState.checkForNewItems()
+                                withAnimation(.easeOut(duration: 0.3)) { isRefreshing = false }
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 14, weight: .light))
+                                .foregroundColor(IL.paperInkLight)
+                        }
+                    } else if isRefreshing {
+                        ProgressView().scaleEffect(0.6).tint(IL.paperInkLight)
+                    }
+
                     if !appState.dismissedItems.isEmpty {
                         Button { showDismissed = true } label: {
                             Image(systemName: "tray")
@@ -206,6 +226,41 @@ struct DashboardView: View {
                 Rectangle().fill(IL.paperInk.opacity(0.08)).frame(height: 0.5)
             }
             .padding(.top, 10)
+
+            // Progress bar — shows how far through the stack the user is
+            if !appState.items.isEmpty {
+                let totalSessionCards = appState.items.count + appState.dismissedItems.count + appState.sessionReplyCount
+                let clearedCards = appState.dismissedItems.count + appState.sessionReplyCount
+                if totalSessionCards > 1 {
+                    VStack(spacing: 4) {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 1)
+                                    .fill(IL.paperInk.opacity(0.06))
+                                    .frame(height: 2)
+                                RoundedRectangle(cornerRadius: 1)
+                                    .fill(IL.accent.opacity(0.5))
+                                    .frame(width: max(0, geo.size.width * CGFloat(clearedCards) / CGFloat(totalSessionCards)), height: 2)
+                                    .animation(.easeInOut(duration: 0.4), value: clearedCards)
+                            }
+                        }
+                        .frame(height: 2)
+
+                        HStack {
+                            Text("\(appState.items.count) remaining")
+                                .font(IL.serif(9)).italic()
+                                .foregroundColor(IL.paperInkFaint)
+                            Spacer()
+                            if clearedCards > 0 {
+                                Text("\(clearedCards) cleared")
+                                    .font(IL.serif(9)).italic()
+                                    .foregroundColor(IL.accent.opacity(0.6))
+                            }
+                        }
+                    }
+                    .padding(.top, 6)
+                }
+            }
         }
     }
 
