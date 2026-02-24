@@ -359,8 +359,15 @@ struct EmailCardView: View {
                     Text("↓ \(appState.snoozeLabel)")
                         .font(IL.serif(10)).italic().foregroundColor(IL.imsgInkLight)
                     Spacer()
-                    Text("tap to reply · send →")
-                        .font(IL.serif(10)).italic().foregroundColor(IL.imsgInkLight)
+                    Button {
+                        SoundManager.shared.play(.tap)
+                        appState.markAsReplied(item: email)
+                    } label: {
+                        Text("already replied?")
+                            .font(IL.serif(10)).italic()
+                            .foregroundColor(IL.imsgBlue.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 18).padding(.vertical, 10)
             }
@@ -750,8 +757,15 @@ struct EmailCardView: View {
                 Text("↓ \(appState.snoozeLabel)")
                     .font(IL.serif(10)).italic().foregroundColor(IL.inkFaint)
                 Spacer()
-                Text(email.source == .imessage ? "tap to reply · send →" : "tap to edit · send →")
-                    .font(IL.serif(10)).italic().foregroundColor(IL.inkFaint)
+                Button {
+                    SoundManager.shared.play(.tap)
+                    appState.markAsReplied(item: email)
+                } label: {
+                    Text("already replied?")
+                        .font(IL.serif(10)).italic()
+                        .foregroundColor(sourceColor.opacity(0.6))
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 18).padding(.vertical, 10)
         }
