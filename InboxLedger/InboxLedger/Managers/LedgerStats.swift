@@ -20,6 +20,7 @@ final class LedgerStats {
     private let lastSessionRepliesKey = "ledger_last_session_replies"
     private let lastSessionContactsKey = "ledger_last_session_contacts"
     private let longestStreakKey = "ledger_longest_streak"
+    private let clearedDatesKey = "ledger_cleared_dates"
 
     // MARK: - State
 
@@ -37,6 +38,8 @@ final class LedgerStats {
     private(set) var lastSessionContacts: [String] = []
     /// The date string of the last cleared day
     private(set) var lastClearedDate: String = ""
+    /// Set of "yyyy-MM-dd" strings for days the user has cleared (kept to last 14 days)
+    private(set) var clearedDates: Set<String> = []
 
     // MARK: - Today's Date
 
@@ -85,6 +88,8 @@ final class LedgerStats {
         }
 
         lastClearedDate = today
+        clearedDates.insert(today)
+        pruneClearedDates()
         totalClearedDays += 1
         totalReplies += repliesSent
         lastSessionReplies = repliesSent
@@ -108,24 +113,12 @@ final class LedgerStats {
     var weekDots: [Bool] {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-
-        // We only know consecutive days from the streak, so reconstruct
-        // If currentStreak >= 7, all dots are filled
-        // Otherwise, fill from today backward
         let cal = Calendar.current
-        var dots: [Bool] = []
 
-        for daysAgo in stride(from: 6, through: 0, by: -1) {
-            if currentStreak > daysAgo {
-                dots.append(true)
-            } else if daysAgo == 0 && lastClearedDate == todayString {
-                dots.append(true)
-            } else {
-                dots.append(false)
-            }
+        return (0..<7).map { i in
+            let date = cal.date(byAdding: .day, value: -(6 - i), to: Date()) ?? Date()
+            return clearedDates.contains(f.string(from: date))
         }
-
-        return dots
     }
 
     /// Day labels for the 7 streak dots (Mon, Tue, etc.)
@@ -202,6 +195,35 @@ final class LedgerStats {
         return pool[dayOfYear % pool.count]
     }
 
+    // MARK: - Helpers
+
+    /// Keep only the last 14 days of cleared-date entries.
+    private func pruneClearedDates() {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        let cal = Calendar.current
+        let cutoff = cal.date(byAdding: .day, value: -14, to: Date()) ?? Date()
+        let cutoffStr = f.string(from: cutoff)
+        clearedDates = clearedDates.filter { $0 >= cutoffStr }
+    }
+
+    /// Backfill clearedDates from the current streak for users upgrading from the
+    /// old streak-only tracking. Only runs once — when clearedDates is empty but
+    /// we already have streak data.
+    private func migrateStreakToDates() {
+        guard clearedDates.isEmpty, currentStreak > 0, !lastClearedDate.isEmpty else { return }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        let cal = Calendar.current
+        guard let anchor = f.date(from: lastClearedDate) else { return }
+        for i in 0..<currentStreak {
+            if let d = cal.date(byAdding: .day, value: -i, to: anchor) {
+                clearedDates.insert(f.string(from: d))
+            }
+        }
+        save()
+    }
+
     // MARK: - Persistence
 
     private func save() {
@@ -213,6 +235,7 @@ final class LedgerStats {
         ud.set(totalReplies, forKey: totalRepliesKey)
         ud.set(lastSessionReplies, forKey: lastSessionRepliesKey)
         ud.set(lastSessionContacts, forKey: lastSessionContactsKey)
+        ud.set(Array(clearedDates), forKey: clearedDatesKey)
     }
 
     private func load() {
@@ -224,6 +247,7 @@ final class LedgerStats {
         totalReplies = ud.integer(forKey: totalRepliesKey)
         lastSessionReplies = ud.integer(forKey: lastSessionRepliesKey)
         lastSessionContacts = (ud.array(forKey: lastSessionContactsKey) as? [String]) ?? []
+        clearedDates = Set(ud.stringArray(forKey: clearedDatesKey) ?? [])
 
         // Check if streak is still valid (yesterday or today)
         if !lastClearedDate.isEmpty && lastClearedDate != todayString && lastClearedDate != yesterdayString {
@@ -231,6 +255,9 @@ final class LedgerStats {
             currentStreak = 0
             save()
         }
+
+        // One-time migration for existing users
+        migrateStreakToDates()
     }
 
     /// Reset everything
@@ -242,6 +269,7 @@ final class LedgerStats {
         lastSessionReplies = 0
         lastSessionContacts = []
         lastClearedDate = ""
+        clearedDates = []
         save()
     }
 }

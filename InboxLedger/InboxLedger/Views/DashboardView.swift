@@ -483,7 +483,7 @@ struct DashboardView: View {
             }
 
             // Streak dots — this week
-            if streak > 0 {
+            if totalDays > 0 {
                 HStack(spacing: 6) {
                     ForEach(0..<7, id: \.self) { i in
                         VStack(spacing: 3) {
