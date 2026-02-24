@@ -14,6 +14,7 @@ struct EmailCardView: View {
     @State private var verticalOffset: CGFloat = 0
     @State private var showDraftEditor = false
     @State private var showMessageCompose = false
+    @State private var showIMessageDraftEditor = false
     @State private var showSnoozed = false
     private let threshold: CGFloat = 120
 
@@ -100,19 +101,35 @@ struct EmailCardView: View {
         )
         .onTapGesture {
             if isTopCard {
-                if isIMessage { showMessageCompose = true }
+                if isIMessage { showIMessageDraftEditor = true }
                 else { showDraftEditor = true }
             }
         }
         .sheet(isPresented: $showDraftEditor) { DraftEditorView(email: email) }
+        .sheet(isPresented: $showIMessageDraftEditor) {
+            iMessageDraftEditorView(email: email)
+        }
         .sheet(isPresented: $showMessageCompose) {
             if MFMessageComposeViewController.canSendText() {
                 MessageComposeView(
                     recipient: email.senderEmail,
                     body: email.suggestedDraft ?? "",
-                    onDismiss: {
+                    onResult: { result in
                         showMessageCompose = false
-                        appState.dismiss(item: email)
+                        if result == .sent {
+                            // Swipe-right path: sent without editing — record as unedited
+                            let draft = email.suggestedDraft ?? ""
+                            if SubscriptionManager.shared.styleLearningEnabled {
+                                StyleMemory.shared.recordEdit(
+                                    email: email,
+                                    aiDraft: draft,
+                                    userFinal: draft,
+                                    redraftInstruction: nil
+                                )
+                            }
+                            StyleMemory.shared.recordSend()
+                            appState.dismiss(item: email)
+                        }
                     }
                 )
             }
@@ -367,7 +384,7 @@ struct EmailCardView: View {
                     Text("↓ \(appState.snoozeLabel)")
                         .font(IL.serif(10)).italic().foregroundColor(IL.imsgInkLight)
                     Spacer()
-                    Text("tap to reply · send →")
+                    Text("tap to edit · send →")
                         .font(IL.serif(10)).italic().foregroundColor(IL.imsgInkLight)
                 }
                 .padding(.horizontal, 18).padding(.vertical, 10)
@@ -760,7 +777,7 @@ struct EmailCardView: View {
                 Text("↓ \(appState.snoozeLabel)")
                     .font(IL.serif(10)).italic().foregroundColor(IL.inkFaint)
                 Spacer()
-                Text(email.source == .imessage ? "tap to reply · send →" : "tap to edit · send →")
+                Text("tap to edit · send →")
                     .font(IL.serif(10)).italic().foregroundColor(IL.inkFaint)
             }
             .padding(.horizontal, 18).padding(.vertical, 10)
@@ -843,17 +860,24 @@ struct EmailCardView: View {
 
     private func handleSwipe(_ translation: CGFloat) {
         if translation > threshold {
-            // Swipe right → Send
+            if email.source == .imessage {
+                // iMessage: open native Messages compose sheet
+                SoundManager.shared.play(.send)
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                    offset = 0
+                }
+                if email.suggestedDraft != nil && !email.suggestedDraft!.isEmpty {
+                    showMessageCompose = true
+                } else {
+                    appState.dismiss(item: email)
+                }
+                return
+            }
+            // Swipe right → Send (email)
             SoundManager.shared.play(.send)
             withAnimation(.easeOut(duration: 0.3)) { offset = 500 }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                if email.source == .imessage {
-                    if let draft = email.suggestedDraft, !draft.isEmpty {
-                        appState.queueSend(for: email, body: draft, replyAll: false)
-                    } else {
-                        appState.dismiss(item: email)
-                    }
-                } else if let draft = email.suggestedDraft {
+                if let draft = email.suggestedDraft {
                     var sendBody = draft
                     if appState.appendLedgerSignature,
                        (email.source == .gmail || email.source == .outlook),
