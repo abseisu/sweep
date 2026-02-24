@@ -451,7 +451,11 @@ export default async function imessageRoutes(app: FastifyInstance) {
       .orderBy(sql`${schema.ledgerItems.date} DESC`)
       .limit(50);
 
-    const messages = items.map(item => {
+    // Filter out cards where the user was the last to reply (stale cards
+    // that haven't been cleaned up by the relay yet)
+    const staleIds: string[] = [];
+
+    const messages = items.flatMap(item => {
       // Parse structured messages from snippet field
       let structuredMessages: Array<{ text: string; date: string; senderName?: string }> = [];
       try {
@@ -464,7 +468,16 @@ export default async function imessageRoutes(app: FastifyInstance) {
         if (item.toRecipients) conversationContext = JSON.parse(item.toRecipients);
       } catch { /* ignore */ }
 
-      return {
+      // Skip cards where user was the last to reply
+      if (conversationContext && conversationContext.length > 0) {
+        const lastMsg = conversationContext[conversationContext.length - 1];
+        if (lastMsg.isFromMe) {
+          staleIds.push(item.id);
+          return [];
+        }
+      }
+
+      return [{
         id: item.id,
         senderName: item.senderName,
         senderPhone: item.senderEmail,
@@ -481,8 +494,19 @@ export default async function imessageRoutes(app: FastifyInstance) {
         category: item.category,
         conversationContext,
         structuredMessages,
-      };
+      }];
     });
+
+    // Auto-dismiss stale cards in the background
+    if (staleIds.length > 0) {
+      console.log(`🧹 GET /imessage/messages: auto-dismissing ${staleIds.length} stale cards (user replied)`);
+      for (const id of staleIds) {
+        db.update(schema.ledgerItems)
+          .set({ status: 'dismissed', updatedAt: new Date() })
+          .where(and(eq(schema.ledgerItems.id, id), eq(schema.ledgerItems.userId, userId)))
+          .catch(() => {});
+      }
+    }
 
     console.log(`📱 GET /imessage/messages: returning ${messages.length} items for user ${userId.slice(0, 8)}`);
     return { messages };
