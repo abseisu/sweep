@@ -676,10 +676,12 @@ struct DashboardView: View {
 
     private var cardStackView: some View {
         VStack(spacing: 0) {
-            if let topItem = appState.items.first {
+            let visibleCards = Array(appState.items.prefix(3))
+
+            if !visibleCards.isEmpty {
                 ZStack(alignment: .top) {
                     // Decorative "deck" edge — hints at more cards underneath
-                    if appState.items.count > 1 {
+                    if visibleCards.count > 1 {
                         RoundedRectangle(cornerRadius: 16)
                             .fill(IL.card.opacity(0.6))
                             .overlay(
@@ -691,13 +693,21 @@ struct DashboardView: View {
                             .frame(height: 20)
                     }
 
-                    // Top card — content-hugging, no fixed height
-                    EmailCardView(email: topItem, isTopCard: true)
-                        .zIndex(1)
-                        .transition(.asymmetric(
-                            insertion: .opacity,
-                            removal: .opacity.combined(with: .move(edge: .trailing))
-                        ))
+                    // Render all 3 cards so SwiftUI can animate transitions,
+                    // but only the top card is visible — back cards are fully
+                    // hidden behind it (opacity 0, no offset).
+                    ForEach(Array(visibleCards.enumerated().reversed()), id: \.element.id) { index, item in
+                        let isTop = index == 0
+
+                        EmailCardView(email: item, isTopCard: isTop)
+                            .opacity(isTop ? 1 : 0)
+                            .zIndex(Double(visibleCards.count - index))
+                            .allowsHitTesting(isTop)
+                            .transition(.asymmetric(
+                                insertion: .opacity,
+                                removal: .opacity.combined(with: .move(edge: .trailing))
+                            ))
+                    }
                 }
                 .animation(.spring(response: 0.4, dampingFraction: 0.8), value: appState.items.map(\.id))
             }
