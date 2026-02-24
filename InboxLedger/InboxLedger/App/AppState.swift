@@ -553,6 +553,17 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Invalidate the stack-mode background refresh timer (e.g. when entering background)
+    func stopStackRefreshTimer() {
+        stackRefreshTimer?.invalidate()
+        stackRefreshTimer = nil
+    }
+
+    func stopStackRefreshTimer() {
+        stackRefreshTimer?.invalidate()
+        stackRefreshTimer = nil
+    }
+
     /// Fetches email signatures from Gmail and Outlook for all connected accounts.
     /// Gmail has a server-side signature accessible via API.
     /// Outlook signatures are client-side only and not available via Graph API.
