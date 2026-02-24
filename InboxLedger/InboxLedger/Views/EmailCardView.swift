@@ -372,6 +372,24 @@ struct EmailCardView: View {
 
             Color.clear.frame(height: 8)
 
+            // ── "Already replied?" quick-clear ──
+            if isTopCard {
+                Button {
+                    SoundManager.shared.play(.send)
+                    withAnimation(.easeOut(duration: 0.3)) { offset = 500 }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        appState.dismiss(item: email)
+                    }
+                } label: {
+                    Text("Already replied?")
+                        .font(IL.serif(11)).italic()
+                        .foregroundColor(IL.imsgBlue.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 6)
+            }
+
             // ── Bottom hints ──
             if isTopCard {
                 Rectangle().fill(IL.imsgRule.opacity(0.4)).frame(height: 0.5).padding(.horizontal, 18)
