@@ -2236,6 +2236,26 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Mark a card as "already replied" — user confirmed they handled it outside the app.
+    /// This is stronger than dismiss: it tracks the thread permanently and won't resurface
+    /// even when the Mac relay eventually syncs.
+    func markAsReplied(item: LedgerEmail) {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            // Remove from the visible stack (no undo — they confirmed they replied)
+            items.removeAll { $0.id == item.id }
+
+            // Track the thread so it never comes back
+            if !item.threadId.isEmpty {
+                dismissedThreadIds.insert(item.threadId)
+                saveDismissedThreadIds()
+            }
+            dismissedIds.insert(item.id)
+            saveDismissedIds()
+            checkLedgerCleared()
+            saveLedgerState()
+        }
+    }
+
     func undoDismiss() {
         guard let restored = dismissedItems.first else { return }
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
