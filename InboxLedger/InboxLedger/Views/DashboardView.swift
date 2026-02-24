@@ -676,9 +676,9 @@ struct DashboardView: View {
 
     private var cardStackView: some View {
         GeometryReader { geo in
-            ZStack {
+            ZStack(alignment: .top) {
                 ForEach(Array(appState.items.prefix(3).enumerated().reversed()), id: \.element.id) { index, item in
-                    EmailCardView(email: item, isTopCard: index == 0, maxHeight: geo.size.height - 20)
+                    EmailCardView(email: item, isTopCard: index == 0)
                         .offset(y: CGFloat(index) * 5)
                         .scaleEffect(1.0 - CGFloat(index) * 0.02)
                         .opacity(index == 0 ? 1.0 : 0.35)
@@ -687,7 +687,7 @@ struct DashboardView: View {
                         .clipped()
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .top)
             .padding(.horizontal, 20)
         }
     }
