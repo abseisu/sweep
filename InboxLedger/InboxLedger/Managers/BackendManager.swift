@@ -273,6 +273,7 @@ final class BackendManager {
         let attachmentSummary: String?
         let linkSummary: String?
         let recipients: String?
+        let date: String?
     }
 
     struct ScoreResponse: Decodable {

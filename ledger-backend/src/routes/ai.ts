@@ -23,6 +23,7 @@ const emailSchema = z.object({
   attachmentSummary: z.string().optional(),
   linkSummary: z.string().optional(),
   recipients: z.string().optional(),
+  date: z.string().optional(),
 });
 
 const scoreRequestSchema = z.object({

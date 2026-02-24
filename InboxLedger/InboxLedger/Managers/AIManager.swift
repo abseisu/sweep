@@ -108,7 +108,9 @@ final class AIManager {
 
     /// Convert a LedgerEmail to the BackendManager's EmailForScoring format
     private func backendEmail(from email: LedgerEmail) -> BackendManager.EmailForScoring {
-        BackendManager.EmailForScoring(
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        return BackendManager.EmailForScoring(
             id: email.id,
             from: email.senderName,
             fromEmail: email.senderEmail,
@@ -121,7 +123,8 @@ final class AIManager {
             linkSummary: email.hasLinks
                 ? email.detectedLinks.prefix(3).map { "\($0.linkType.label): \($0.displayText)" }.joined(separator: ", ")
                 : nil,
-            recipients: email.toRecipients.isEmpty ? nil : email.toRecipients.joined(separator: ", ")
+            recipients: email.toRecipients.isEmpty ? nil : email.toRecipients.joined(separator: ", "),
+            date: iso.string(from: email.date)
         )
     }
 
@@ -154,6 +157,20 @@ final class AIManager {
             }
             if let calContext = CalendarManager.shared.availabilityContext(for: email.body) {
                 sections.append(calContext)
+            }
+
+            // 3b. Temporal context — tell AI how old the message is
+            let ageSeconds = Date().timeIntervalSince(email.date)
+            if ageSeconds > 3600 { // more than 1 hour old
+                let hours = Int(ageSeconds / 3600)
+                let ageDescription: String
+                if hours < 24 {
+                    ageDescription = "\(hours) hour\(hours == 1 ? "" : "s") ago"
+                } else {
+                    let days = hours / 24
+                    ageDescription = "\(days) day\(days == 1 ? "" : "s") ago"
+                }
+                sections.append("TEMPORAL CONTEXT: This message was sent \(ageDescription). Any relative time references in the message (\"today\", \"tomorrow\", \"this afternoon\", etc.) refer to when it was SENT, not now. If those times have already passed, the draft reply should acknowledge this — e.g., apologize for the late reply or suggest rescheduling.")
             }
         }
 
