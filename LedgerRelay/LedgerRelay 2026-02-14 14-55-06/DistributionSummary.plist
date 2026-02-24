@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>LedgerRelay</key>
+	<array>
+		<dict>
+			<key>architectures</key>
+			<array>
+				<string>x86_64</string>
+				<string>arm64</string>
+			</array>
+			<key>buildNumber</key>
+			<string>1</string>
+			<key>certificate</key>
+			<dict>
+				<key>SHA1</key>
+				<string>0633D2F1AE289AEA81CB9E2CAABC023240B20100</string>
+				<key>dateExpires</key>
+				<string>2/1/27</string>
+				<key>type</key>
+				<string>Developer ID Application</string>
+			</dict>
+			<key>entitlements</key>
+			<dict>
+				<key>com.apple.security.automation.apple-events</key>
+				<true/>
+			</dict>
+			<key>name</key>
+			<string>LedgerRelay.app</string>
+			<key>team</key>
+			<dict>
+				<key>id</key>
+				<string>U5ZQTQYU53</string>
+				<key>name</key>
+				<string>Adnan Bseisu</string>
+			</dict>
+			<key>versionNumber</key>
+			<string>1.0</string>
+		</dict>
+	</array>
+</dict>
+</plist>
