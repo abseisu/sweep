@@ -121,7 +121,8 @@ final class AIManager {
             linkSummary: email.hasLinks
                 ? email.detectedLinks.prefix(3).map { "\($0.linkType.label): \($0.displayText)" }.joined(separator: ", ")
                 : nil,
-            recipients: email.toRecipients.isEmpty ? nil : email.toRecipients.joined(separator: ", ")
+            recipients: email.toRecipients.isEmpty ? nil : email.toRecipients.joined(separator: ", "),
+            date: email.date
         )
     }
 
