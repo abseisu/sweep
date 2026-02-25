@@ -68,10 +68,12 @@ struct DraftEditorView: View {
             .onAppear {
                 // Load the current draft (may have been edited previously)
                 var draft = email.suggestedDraft ?? ""
-                if appState.appendLedgerSignature && (email.source == .gmail || email.source == .outlook) && !appState.emailSignature.isEmpty {
-                    if !draft.contains(appState.emailSignature) {
-                        draft += "\n\n\(appState.emailSignature)"
-                    }
+                // Always append sign-off name when configured (with duplicate check)
+                if appState.appendLedgerSignature,
+                   (email.source == .gmail || email.source == .outlook),
+                   !appState.emailSignature.isEmpty,
+                   !draft.contains(appState.emailSignature) {
+                    draft += "\n\n\(appState.emailSignature)"
                 }
                 draftText = draft
                 // Only remember the original AI suggestion on first open
