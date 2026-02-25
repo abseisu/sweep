@@ -2,6 +2,7 @@
 // Ledger
 
 import SwiftUI
+import UIKit
 
 struct DraftEditorView: View {
     @EnvironmentObject var appState: AppState
@@ -260,12 +261,59 @@ struct DraftEditorView: View {
 
     // MARK: - Reply
 
+    // MARK: - Word Count
+
+    private var wordCount: Int {
+        let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 0 }
+        return trimmed.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }.count
+    }
+
+    // MARK: - Quick Redraft Chips
+
+    /// Contextual quick-action chips — adapts based on detected tone and email category
+    private var quickRedraftChips: [String] {
+        var chips: [String] = []
+        let tone = email.detectedTone?.lowercased() ?? ""
+        let category = email.category?.lowercased() ?? ""
+
+        // Universal chips
+        chips.append("Shorter")
+        chips.append("More formal")
+
+        // Context-aware suggestions
+        if tone == "formal" || category == "work" {
+            chips.append("Warmer tone")
+        } else {
+            chips.append("More professional")
+        }
+
+        // Action-oriented chips based on content
+        let bodyLower = email.body.lowercased()
+        if bodyLower.contains("meeting") || bodyLower.contains("schedule") || bodyLower.contains("call") {
+            chips.append("Suggest a time")
+        } else if bodyLower.contains("deadline") || bodyLower.contains("urgent") || bodyLower.contains("asap") {
+            chips.append("Acknowledge urgency")
+        } else {
+            chips.append("Decline politely")
+        }
+
+        return chips
+    }
+
     private var replySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Your reply").font(IL.serif(14)).italic().foregroundColor(IL.paperInk)
                 Spacer()
+                // Word count
+                Text("\(wordCount) word\(wordCount == 1 ? "" : "s")")
+                    .font(IL.serif(10))
+                    .foregroundColor(IL.paperInkFaint)
+                    .animation(.none, value: wordCount)
                 if let tone = email.detectedTone {
+                    Text("·").font(IL.serif(10)).foregroundColor(IL.paperInkFaint)
                     Text(tone.capitalized).font(IL.serif(11)).italic().foregroundColor(IL.paperInkLight)
                 }
             }
@@ -285,6 +333,26 @@ struct DraftEditorView: View {
                     .keyboardType(.default)
                     .textContentType(nil)
                     .tint(IL.accent)  // Cursor color
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Text("\(wordCount)w")
+                                .font(IL.serif(11))
+                                .foregroundColor(IL.inkFaint)
+                            Spacer()
+                            Button {
+                                sendReply()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "paperplane.fill")
+                                        .font(.system(size: 11, weight: .medium))
+                                    Text("Send")
+                                        .font(IL.serif(13, weight: .medium))
+                                }
+                                .foregroundColor(canSend ? IL.accent : IL.paperInkFaint)
+                            }
+                            .disabled(!canSend || isSending)
+                        }
+                    }
 
                 // Provider email signature — inside the card
                 if let provSig = appState.providerSignature(for: email), !provSig.isEmpty {
@@ -323,6 +391,36 @@ struct DraftEditorView: View {
                     .stroke(IL.ink.opacity(0.1), lineWidth: 0.5)
             )
 
+            // Quick redraft suggestion chips
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(quickRedraftChips, id: \.self) { chip in
+                        Button {
+                            aiPrompt = chip
+                            redraftWithAI()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 9, weight: .medium))
+                                Text(chip)
+                                    .font(IL.serif(11, weight: .medium))
+                            }
+                            .foregroundColor(IL.accent)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(IL.accent.opacity(0.06))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(IL.accent.opacity(0.15), lineWidth: 0.5)
+                            )
+                        }
+                        .disabled(isRedrafting)
+                        .opacity(isRedrafting ? 0.5 : 1)
+                    }
+                }
+            }
+
             // AI re-draft prompt bar
             VStack(spacing: 6) {
                 HStack(alignment: .top, spacing: 8) {
@@ -332,18 +430,22 @@ struct DraftEditorView: View {
                         .frame(height: 28)
 
                     if #available(iOS 16.0, *) {
-                        TextField("e.g. Make it more casual, Decline politely...", text: $aiPrompt, axis: .vertical)
+                        TextField("Or type a custom instruction…", text: $aiPrompt, axis: .vertical)
                             .font(IL.serif(13))
                             .foregroundColor(IL.ink)
                             .lineLimit(1...6)
                             .focused($promptFocused)
                             .frame(minHeight: 28)
+                            .submitLabel(.send)
+                            .onSubmit { redraftWithAI() }
                     } else {
-                        TextField("e.g. Make it more casual, Decline politely...", text: $aiPrompt)
+                        TextField("Or type a custom instruction…", text: $aiPrompt)
                             .font(IL.serif(13))
                             .foregroundColor(IL.ink)
                             .focused($promptFocused)
                             .frame(height: 28)
+                            .submitLabel(.send)
+                            .onSubmit { redraftWithAI() }
                     }
 
                     Button {
@@ -393,6 +495,7 @@ struct DraftEditorView: View {
         isRedrafting = true
         editorFocused = false
         promptFocused = false
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         let beforeDraft = draftText
         let instruction = aiPrompt
 
@@ -444,6 +547,7 @@ struct DraftEditorView: View {
         // Queue the send with undo window (actual send happens after 10s)
         appState.queueSend(for: email, body: draftText, replyAll: useReplyAll)
 
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
         isSending = false
         withAnimation(.easeOut(duration: 0.2)) { showSent = true }
 

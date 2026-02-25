@@ -2,6 +2,7 @@
 // Ledger
 
 import SwiftUI
+import UIKit
 
 struct DashboardView: View {
     @EnvironmentObject var appState: AppState
@@ -10,6 +11,7 @@ struct DashboardView: View {
     @State private var timeRemaining: String = ""
     @State private var showFirstRunBanner = true
     @State private var showModeSwitchBanner = true
+    @State private var isRefreshing = false
 
     // Timer to update countdown
     let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -38,7 +40,7 @@ struct DashboardView: View {
                     .animation(.easeInOut(duration: 0.3), value: appState.isScanningNewAccount)
                 }
 
-                if appState.isLoading {
+                if appState.isInitialScanInProgress {
                     loadingView
                     Spacer(minLength: 0)
                 } else if appState.items.isEmpty {
@@ -186,6 +188,24 @@ struct DashboardView: View {
                         .foregroundColor(Color(red: 0.25, green: 0.35, blue: 0.55))
                     }
 
+                    // Refresh button — check for new emails
+                    if !appState.items.isEmpty && !isRefreshing {
+                        Button {
+                            Task {
+                                isRefreshing = true
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                await appState.checkForNewItems()
+                                withAnimation(.easeOut(duration: 0.3)) { isRefreshing = false }
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 14, weight: .light))
+                                .foregroundColor(IL.paperInkLight)
+                        }
+                    } else if isRefreshing {
+                        ProgressView().scaleEffect(0.6).tint(IL.paperInkLight)
+                    }
+
                     if !appState.dismissedItems.isEmpty {
                         Button { showDismissed = true } label: {
                             Image(systemName: "tray")
@@ -206,6 +226,41 @@ struct DashboardView: View {
                 Rectangle().fill(IL.paperInk.opacity(0.08)).frame(height: 0.5)
             }
             .padding(.top, 10)
+
+            // Progress bar — shows how far through the stack the user is
+            if !appState.items.isEmpty {
+                let totalSessionCards = appState.items.count + appState.dismissedItems.count + appState.sessionReplyCount
+                let clearedCards = appState.dismissedItems.count + appState.sessionReplyCount
+                if totalSessionCards > 1 {
+                    VStack(spacing: 4) {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 1)
+                                    .fill(IL.paperInk.opacity(0.06))
+                                    .frame(height: 2)
+                                RoundedRectangle(cornerRadius: 1)
+                                    .fill(IL.accent.opacity(0.5))
+                                    .frame(width: max(0, geo.size.width * CGFloat(clearedCards) / CGFloat(totalSessionCards)), height: 2)
+                                    .animation(.easeInOut(duration: 0.4), value: clearedCards)
+                            }
+                        }
+                        .frame(height: 2)
+
+                        HStack {
+                            Text("\(appState.items.count) remaining")
+                                .font(IL.serif(9)).italic()
+                                .foregroundColor(IL.paperInkFaint)
+                            Spacer()
+                            if clearedCards > 0 {
+                                Text("\(clearedCards) cleared")
+                                    .font(IL.serif(9)).italic()
+                                    .foregroundColor(IL.accent.opacity(0.6))
+                            }
+                        }
+                    }
+                    .padding(.top, 6)
+                }
+            }
         }
     }
 
@@ -400,6 +455,9 @@ struct DashboardView: View {
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            } else if appState.isLoadingIMessage && !appState.isLoading {
+                Text("Scanning iMessages…")
+                    .font(IL.serif(14)).italic().foregroundColor(IL.paperInkLight)
             } else {
                 Text(appState.isProcessingAI ? "Reading between the lines…" : "Gathering your correspondence…")
                     .font(IL.serif(14)).italic().foregroundColor(IL.paperInkLight)
@@ -676,19 +734,14 @@ struct DashboardView: View {
 
     private var cardStackView: some View {
         GeometryReader { geo in
-            ZStack {
-                ForEach(Array(appState.items.prefix(3).enumerated().reversed()), id: \.element.id) { index, item in
-                    EmailCardView(email: item, isTopCard: index == 0, maxHeight: geo.size.height - 20)
-                        .offset(y: CGFloat(index) * 5)
-                        .scaleEffect(1.0 - CGFloat(index) * 0.02)
-                        .opacity(index == 0 ? 1.0 : 0.35)
-                        .zIndex(Double(3 - index))
-                        // Clip back cards so their bottom hints don't show below the top card
-                        .clipped()
-                }
+            // Show only the current top card — no distracting background stack
+            if let topItem = appState.items.first {
+                EmailCardView(email: topItem, isTopCard: true, maxHeight: geo.size.height - 20)
+                    .id(topItem.id)
+                    .transition(.opacity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .padding(.horizontal, 20)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.horizontal, 20)
         }
     }
 }
