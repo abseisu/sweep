@@ -17,7 +17,7 @@ final class AIManager {
         guard let s = scores.first else { throw AIError.emptyResponse }
         return AIResponse(
             summary: s.summary ?? "",
-            draftResponse: s.draft ?? "",
+            draftResponse: stripPlaceholders(s.draft ?? ""),
             detectedTone: s.tone ?? "formal",
             replyability: s.replyability,
             category: s.category ?? "work",
@@ -47,7 +47,7 @@ final class AIManager {
                 if let s = scoreById[email.id] {
                     results.append(AIResponse(
                         summary: s.summary ?? "",
-                        draftResponse: s.draft ?? "",
+                        draftResponse: stripPlaceholders(s.draft ?? ""),
                         detectedTone: s.tone ?? "formal",
                         replyability: s.replyability,
                         category: s.category ?? "work",
@@ -92,8 +92,11 @@ final class AIManager {
                 .replacingOccurrences(of: "```", with: "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // Append signature for email sources
-            if (email.source == .gmail || email.source == .outlook) && !signature.isEmpty {
+            // Strip any placeholder patterns the AI may have generated
+            text = stripPlaceholders(text)
+
+            // Append signature for email sources (with duplicate check)
+            if (email.source == .gmail || email.source == .outlook) && !signature.isEmpty && !text.contains(signature) {
                 text += "\n\n\(signature)"
             }
 
@@ -162,7 +165,41 @@ final class AIManager {
             sections.append(dismissalSection)
         }
 
+        // 5. Sign-off name + anti-placeholder instructions
+        let signOffName = UserDefaults.standard.string(forKey: "ledger_signature") ?? ""
+        let appendName = UserDefaults.standard.object(forKey: "ledger_append_signature") as? Bool ?? true
+
+        var signOffSection = "CRITICAL FORMATTING RULES:\n"
+        signOffSection += "- NEVER use placeholder text like [Your Name], [Name], [Insert Name], [First Name], or any bracketed placeholder in any draft.\n"
+        signOffSection += "- Every draft must be immediately ready to send with zero edits needed.\n"
+        if appendName && !signOffName.isEmpty {
+            signOffSection += "- The user's sign-off name is \"\(signOffName)\". Always end email drafts with this exact name.\n"
+            signOffSection += "- Do not use any other name or variation."
+        } else {
+            signOffSection += "- The user has NOT configured a sign-off name. Do NOT end drafts with any name or signature line.\n"
+            signOffSection += "- Do not guess or infer the user's name. End with the closing phrase only (e.g. \"Best,\" or \"Thanks,\") or no sign-off at all."
+        }
+        sections.append(signOffSection)
+
         return sections.isEmpty ? nil : sections.joined(separator: "\n\n")
+    }
+
+    /// Strip placeholder patterns like [Your Name], [Name], etc. from AI-generated text.
+    /// Safety net in case the AI ignores the anti-placeholder instruction.
+    private func stripPlaceholders(_ text: String) -> String {
+        guard !text.isEmpty else { return text }
+        var result = text.replacingOccurrences(
+            of: "\\[(?:Your |My |Insert |Full )?(?:Name|Signature|Name Here|First Name)\\]",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        // Clean up trailing whitespace/newlines left after stripping
+        result = result.replacingOccurrences(
+            of: "\\n{3,}",
+            with: "\n\n",
+            options: .regularExpression
+        )
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func sourceLabel(for email: LedgerEmail) -> String {

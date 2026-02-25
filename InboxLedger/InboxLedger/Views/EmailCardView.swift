@@ -17,7 +17,7 @@ struct EmailCardView: View {
     @State private var showSnoozed = false
     @State private var hasPassedThreshold = false  // Haptic: tracks threshold crossing
     @State private var hasPassedVerticalThreshold = false
-    @State private var summaryExpanded = false      // Expandable AI summary
+    // summaryExpanded removed — always show full AI summary
     private let threshold: CGFloat = 120
 
     /// Show specific account email when user has multiple of same service
@@ -337,7 +337,6 @@ struct EmailCardView: View {
                         .font(IL.serif(12)).italic()
                         .foregroundColor(IL.imsgSummaryInk)
                         .lineSpacing(4)
-                        .lineLimit(4)
                 }
                 .padding(.leading, 18)
                 .padding(.trailing, 40)
@@ -482,7 +481,7 @@ struct EmailCardView: View {
                     .padding(.horizontal, 18).padding(.top, email.subject.isEmpty ? 8 : 4)
             }
 
-            // ── AI Summary (tap to expand) ──
+            // ── AI Summary (always fully shown) ──
             if let summary = email.aiSummary {
                 VStack(alignment: .leading, spacing: 0) {
                     RoundedRectangle(cornerRadius: 1)
@@ -493,25 +492,11 @@ struct EmailCardView: View {
                         .font(IL.serif(12)).italic()
                         .foregroundColor(IL.ink.opacity(0.55))
                         .lineSpacing(4)
-                        .lineLimit(summaryExpanded ? nil : 2)
-                        .animation(.easeInOut(duration: 0.2), value: summaryExpanded)
-                    if summary.count > 80 {
-                        Text(summaryExpanded ? "Show less" : "More")
-                            .font(IL.serif(10)).italic()
-                            .foregroundColor(sourceColor.opacity(0.5))
-                            .padding(.top, 3)
-                    }
                 }
                 .padding(.horizontal, 18).padding(.top, 10)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        summaryExpanded.toggle()
-                    }
-                }
             }
 
-            // ── Suggested reply ──
+            // ── Suggested reply (distinct rounded box) ──
             if let draft = email.suggestedDraft, !draft.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Suggested reply")
@@ -527,10 +512,20 @@ struct EmailCardView: View {
                         Text(provSig)
                             .font(IL.serif(11))
                             .foregroundColor(IL.inkFaint)
-                            .lineLimit(1)
+                            .lineLimit(2)
                     }
                 }
-                .padding(.horizontal, 18).padding(.top, 10)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(draftBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(sourceColor.opacity(0.12), lineWidth: 0.5)
+                )
+                .padding(.horizontal, 18)
+                .padding(.top, 10)
             }
 
             // ── Chips (calendar, links, attachments) ──
@@ -775,7 +770,8 @@ struct EmailCardView: View {
         var d = draft
         if appState.appendLedgerSignature,
            (email.source == .gmail || email.source == .outlook),
-           !appState.emailSignature.isEmpty {
+           !appState.emailSignature.isEmpty,
+           !d.contains(appState.emailSignature) {
             d += "\n\n\(appState.emailSignature)"
         }
         return d
